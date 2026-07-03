@@ -120,10 +120,12 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <AdminDailyChart data={dailySeries} />
+      <div className="admin-top-grid">
+        <AdminDailyChart data={dailySeries} />
+        <DigestCard todayAggregates={today} />
+      </div>
 
-      <div className="admin-grid">
-        <div className="card">
+      <div className="card">
           <h2>All orders</h2>
           <div className="filter-bar">
             <input
@@ -243,9 +245,6 @@ export default function AdminPage() {
               </div>
             </div>
           )}
-        </div>
-
-        <DigestCard todayAggregates={today} />
       </div>
     </>
   );

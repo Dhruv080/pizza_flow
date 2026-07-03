@@ -240,8 +240,10 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 .receipt hr { border: none; border-top: 1px dashed var(--line); margin: 8px 0; }
 
 /* ---------- admin ---------- */
-.admin-grid { display: grid; grid-template-columns: 1fr 360px; gap: 20px; align-items: start; }
-@media (max-width: 900px) { .admin-grid { grid-template-columns: 1fr; } }
+/* Chart (left) beside the End-of-Day digest (right); orders sit full-width below. */
+.admin-top-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; margin-bottom: 16px; }
+.admin-top-grid .daily-chart-card { margin-bottom: 0; }
+@media (max-width: 900px) { .admin-top-grid { grid-template-columns: 1fr; } }
 .stat-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .stat {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
@@ -417,7 +419,8 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 }
 
 /* ---------- digest as sole sidebar occupant ---------- */
-.digest-sidebar { position: sticky; top: 16px; }
+.digest-sidebar { position: sticky; top: 16px; margin-bottom: 16px; }
+@media (max-width: 900px) { .digest-sidebar { position: static; } }
 
 /* ---------- orders filter bar + pagination ---------- */
 .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
