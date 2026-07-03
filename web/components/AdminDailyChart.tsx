@@ -18,12 +18,18 @@ const HEIGHT = 220;
 const PAD = { top: 14, right: 14, bottom: 28, left: 44 };
 const BAR_MAX = 22;
 
-function niceMax(value: number): number {
-  if (value <= 0) return 4;
-  const magnitude = 10 ** Math.floor(Math.log10(value));
-  const norm = value / magnitude;
-  const niceNorm = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
-  return niceNorm * magnitude;
+// Pick a "nice" axis top and evenly-spaced ticks that are always whole numbers,
+// so labels read 0/10/20/30/40 rather than 12.5→13, 37.5→38 artefacts.
+function niceScale(rawMax: number, targetTicks = 4): { max: number; ticks: number[] } {
+  if (rawMax <= 0) return { max: 4, ticks: [0, 1, 2, 3, 4] };
+  const rawStep = rawMax / targetTicks;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const norm = rawStep / magnitude;
+  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * magnitude;
+  const max = Math.ceil(rawMax / step) * step;
+  const ticks: number[] = [];
+  for (let t = 0; t <= max + step / 2; t += step) ticks.push(Math.round(t));
+  return { max, ticks };
 }
 
 function shortDate(iso: string): string {
@@ -47,12 +53,11 @@ export function AdminDailyChart({ data }: { data: DailyPoint[] }) {
   const slot = innerW / data.length;
   const hasData = data.some((d) => d.pizzas > 0 || d.revenue > 0);
 
-  const maxValue =
+  const { max: maxValue, ticks: yTicks } =
     mode === "pizzas"
-      ? niceMax(Math.max(1, ...data.map((d) => d.pizzas)))
-      : niceMax(Math.max(1, ...data.map((d) => Math.max(d.revenue, d.discount))));
+      ? niceScale(Math.max(1, ...data.map((d) => d.pizzas)))
+      : niceScale(Math.max(1, ...data.map((d) => Math.max(d.revenue, d.discount))));
 
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(maxValue * f));
   const scaleY = (v: number) => (innerH * v) / (maxValue || 1);
 
   return (
