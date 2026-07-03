@@ -1,0 +1,331 @@
+/* SliceMatic — warm pizzeria theme.
+   Cream canvas, deep oven-red brand, warm amber accents. */
+
+:root {
+  --cream: #fdf8f0;
+  --card: #ffffff;
+  --ink: #2b1d16;
+  --muted: #7a6a5f;
+  --brand: #b3271e;
+  --brand-dark: #8c1d15;
+  --amber: #e8930c;
+  --amber-soft: #fdf0dc;
+  --ok: #2e7d32;
+  --ok-soft: #e8f5e9;
+  --err: #c62828;
+  --err-soft: #fdecea;
+  --line: #eadfd2;
+  --radius: 12px;
+  --shadow: 0 2px 10px rgba(43, 29, 22, 0.07);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--cream);
+  color: var(--ink);
+  font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  line-height: 1.5;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+main { flex: 1; width: 100%; max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+
+/* ---------- header / footer ---------- */
+.site-header {
+  background: var(--brand);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  box-shadow: var(--shadow);
+}
+.brand { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; }
+.brand-mark { font-size: 26px; }
+.brand strong { display: block; font-size: 18px; letter-spacing: 0.4px; }
+.brand small { display: block; font-size: 11px; opacity: 0.85; }
+.site-header nav { display: flex; gap: 4px; }
+.site-header nav a {
+  color: #fff; text-decoration: none; font-weight: 600; font-size: 14px;
+  padding: 7px 14px; border-radius: 999px;
+}
+.site-header nav a:hover { background: rgba(255, 255, 255, 0.15); }
+.site-footer {
+  text-align: center; font-size: 12px; color: var(--muted);
+  padding: 16px; border-top: 1px solid var(--line);
+}
+
+/* ---------- generic ---------- */
+h1 { font-size: 26px; margin-bottom: 4px; }
+h2 { font-size: 18px; margin: 0 0 10px; }
+h3 { font-size: 15px; margin: 0 0 8px; }
+.page-sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.btn {
+  display: inline-block;
+  border: none; cursor: pointer;
+  background: var(--brand); color: #fff;
+  font-weight: 700; font-size: 15px;
+  padding: 11px 22px; border-radius: 999px;
+  transition: background 0.15s;
+}
+.btn:hover { background: var(--brand-dark); }
+.btn:disabled { background: #c9b8ac; cursor: not-allowed; }
+.btn-secondary { background: transparent; color: var(--brand); border: 2px solid var(--brand); }
+.btn-secondary:hover { background: var(--err-soft); }
+.btn-small { padding: 6px 14px; font-size: 13px; }
+
+input[type="text"], input[type="tel"], input[type="email"], input[type="password"], input[type="number"] {
+  width: 100%;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 15px;
+  background: #fff;
+  color: var(--ink);
+}
+input:focus { outline: 2px solid var(--amber); border-color: var(--amber); }
+label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
+.field { margin-bottom: 14px; }
+
+.error-text { color: var(--err); font-size: 13px; margin-top: 4px; font-weight: 600; }
+.banner {
+  border-radius: var(--radius); padding: 10px 14px; font-size: 13.5px; margin-bottom: 16px;
+}
+.banner-demo { background: var(--amber-soft); border: 1px solid var(--amber); }
+.banner-error { background: var(--err-soft); border: 1px solid var(--err); color: var(--err); }
+.banner-ok { background: var(--ok-soft); border: 1px solid var(--ok); color: var(--ok); }
+
+/* ---------- order page layout ---------- */
+.order-grid { display: grid; grid-template-columns: 1fr 340px; gap: 20px; align-items: start; }
+@media (max-width: 860px) { .order-grid { grid-template-columns: 1fr; } }
+.bill-panel { position: sticky; top: 16px; }
+
+/* ---------- pizza-first picker with progressive disclosure ---------- */
+.icard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.icard-grid.compact { grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); }
+
+.customize {
+  margin-top: 16px; padding: 16px;
+  background: var(--amber-soft); border: 1.5px solid var(--amber); border-radius: 12px;
+}
+.customize h3 { margin-bottom: 4px; }
+.customize h3 em { color: var(--brand); font-style: normal; }
+.customize .icard { background: #fff; }
+
+.step-label {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 700; font-size: 13.5px; margin: 14px 0 8px;
+}
+.step-label small { color: var(--muted); font-weight: 400; }
+.step-no {
+  width: 20px; height: 20px; border-radius: 999px; background: var(--brand); color: #fff;
+  font-size: 11px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center;
+}
+
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  border: 1.5px solid var(--line); border-radius: 999px; background: #fff;
+  padding: 7px 13px; cursor: pointer; font-size: 13px; color: var(--ink);
+  transition: border-color 0.1s, background 0.1s;
+}
+.chip:hover { border-color: var(--amber); }
+.chip.selected { border-color: var(--brand); background: var(--err-soft); font-weight: 700; color: var(--brand-dark); }
+.icard {
+  border: 1.5px solid var(--line); border-radius: 10px; background: #fff;
+  padding: 10px 12px; cursor: pointer; text-align: left; font-size: 13.5px;
+  display: flex; flex-direction: column; gap: 2px;
+  transition: border-color 0.1s, background 0.1s;
+}
+.icard:hover { border-color: var(--amber); }
+.icard.selected { border-color: var(--brand); background: var(--err-soft); }
+.icard.selected .icard-name { font-weight: 700; }
+.icard.selected .icard-name::after { content: " ✓"; color: var(--brand); }
+.icard-price { color: var(--muted); font-size: 12.5px; }
+
+/* ---------- table gate (waiter sets the table, customer can't change it) ---------- */
+.gate { display: flex; justify-content: center; padding-top: 8vh; }
+.gate-card { max-width: 400px; width: 100%; text-align: center; padding: 32px 26px; }
+.gate-card h1 { margin: 8px 0 2px; }
+.gate-card .field { margin: 18px 0 14px; }
+.select {
+  width: 100%; border: 1.5px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; font-size: 15px; background: #fff; color: var(--ink); cursor: pointer;
+}
+.select:focus { outline: 2px solid var(--amber); border-color: var(--amber); }
+.table-badge {
+  background: var(--brand); color: #fff; font-weight: 800; font-size: 13px;
+  border-radius: 999px; padding: 4px 14px; letter-spacing: 0.4px; white-space: nowrap;
+}
+
+/* ---------- cart ---------- */
+.cart-line {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 8px 0; border-bottom: 1px dashed var(--line); font-size: 13.5px;
+}
+.cart-line .names { flex: 1; }
+.cart-line .names small { color: var(--muted); display: block; }
+.cart-remove { background: none; border: none; color: var(--err); cursor: pointer; font-size: 13px; font-weight: 700; }
+.qty-stepper { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.qty-stepper button:not(.cart-remove) {
+  width: 26px; height: 26px; border-radius: 999px; border: 1.5px solid var(--brand);
+  background: #fff; color: var(--brand); font-size: 15px; font-weight: 800;
+  cursor: pointer; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+}
+.qty-stepper button:not(.cart-remove):hover:not(:disabled) { background: var(--err-soft); }
+.qty-stepper button:not(.cart-remove):disabled { border-color: var(--line); color: var(--line); cursor: not-allowed; }
+.qty-stepper span { min-width: 20px; text-align: center; font-weight: 700; }
+.qty-stepper .cart-remove { margin-left: 6px; }
+
+/* ---------- bill ---------- */
+.bill-rows { font-size: 14px; }
+.bill-row { display: flex; justify-content: space-between; padding: 4px 0; }
+.bill-row.discount { color: var(--ok); font-weight: 600; }
+.bill-row.total {
+  border-top: 2px solid var(--ink); margin-top: 6px; padding-top: 8px;
+  font-size: 17px; font-weight: 800;
+}
+.bill-row.muted { color: var(--muted); font-size: 13px; }
+
+/* ---------- payment ---------- */
+.pay-modes { display: flex; gap: 8px; margin: 10px 0; }
+.pay-mode {
+  flex: 1; border: 1.5px solid var(--line); border-radius: 10px; background: #fff;
+  padding: 10px 6px; cursor: pointer; text-align: center; font-weight: 600; font-size: 14px;
+}
+.pay-mode.selected { border-color: var(--brand); background: var(--err-soft); }
+
+/* ---------- AI panels ---------- */
+.ai-panel { background: var(--amber-soft); border: 1px solid var(--amber); }
+.ai-panel h3 { display: flex; align-items: center; gap: 6px; }
+.ai-tag {
+  font-size: 10px; font-weight: 800; letter-spacing: 1px; color: #fff;
+  background: var(--amber); border-radius: 999px; padding: 2px 8px;
+}
+.ai-input-row { display: flex; gap: 8px; margin-top: 8px; }
+.ai-input-row input { flex: 1; }
+.ai-note { font-size: 13px; margin-top: 8px; }
+.upsell-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 10px; font-size: 13.5px;
+}
+
+/* ---------- confirmation ---------- */
+.receipt { font-family: Consolas, "Courier New", monospace; font-size: 13.5px; }
+.receipt hr { border: none; border-top: 1px dashed var(--line); margin: 8px 0; }
+
+/* ---------- admin ---------- */
+.admin-grid { display: grid; grid-template-columns: 1fr 360px; gap: 20px; align-items: start; }
+@media (max-width: 900px) { .admin-grid { grid-template-columns: 1fr; } }
+.stat-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.stat {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 16px; min-width: 140px; box-shadow: var(--shadow);
+}
+.stat .stat-label { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }
+.stat .stat-value { font-size: 20px; font-weight: 800; }
+
+.orders-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.orders-table th {
+  text-align: left; padding: 8px; background: var(--amber-soft);
+  border-bottom: 2px solid var(--amber); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.orders-table td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.orders-table td small { color: var(--muted); display: block; }
+.table-scroll { overflow-x: auto; }
+
+.chat-log { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; margin-bottom: 8px; }
+.chat-msg { border-radius: 10px; padding: 8px 12px; font-size: 13.5px; max-width: 92%; }
+.chat-q { background: var(--err-soft); align-self: flex-end; }
+.chat-a { background: #fff; border: 1px solid var(--line); align-self: flex-start; white-space: pre-wrap; }
+
+.digest-box { white-space: pre-wrap; font-size: 13.5px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 10px; }
+
+.spinner { display: inline-block; animation: pulse 1s infinite; font-weight: 700; }
+@keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+/* ---------- admin sub-navigation ---------- */
+.admin-subnav {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--line);
+  flex-wrap: wrap; gap: 10px;
+}
+.admin-subnav-links { display: flex; align-items: center; gap: 4px; }
+.admin-subnav-links a {
+  color: var(--ink); text-decoration: none; font-weight: 600; font-size: 14px;
+  padding: 7px 14px; border-radius: 999px;
+}
+.admin-subnav-links a:hover { background: var(--amber-soft); }
+.admin-subnav-links a.active { background: var(--err-soft); color: var(--brand-dark); }
+
+.admin-settings-dd { position: relative; }
+.admin-settings-dd summary {
+  list-style: none; cursor: pointer; font-weight: 600; font-size: 14px;
+  padding: 7px 14px; border-radius: 999px; color: var(--ink);
+}
+.admin-settings-dd summary::-webkit-details-marker { display: none; }
+.admin-settings-dd:hover summary, .admin-settings-dd[open] summary { background: var(--amber-soft); }
+.admin-settings-dd .dd-panel {
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; min-width: 180px;
+  background: #fff; border: 1.5px solid var(--line); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(43, 29, 22, 0.14); padding: 6px;
+}
+.admin-settings-dd .dd-item {
+  display: block; padding: 8px 12px; border-radius: 8px; font-size: 13.5px;
+  color: var(--ink); text-decoration: none;
+}
+.admin-settings-dd .dd-item:hover { background: var(--amber-soft); }
+
+/* ---------- floating insights chat widget ---------- */
+.chat-fab {
+  position: fixed; bottom: 22px; right: 22px; z-index: 50;
+  width: 56px; height: 56px; border-radius: 999px; border: none;
+  background: var(--brand); color: #fff; font-size: 26px; cursor: pointer;
+  box-shadow: 0 6px 20px rgba(43, 29, 22, 0.28);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.15s;
+}
+.chat-fab:hover { transform: scale(1.06); background: var(--brand-dark); }
+.chat-popup {
+  position: fixed; bottom: 90px; right: 22px; z-index: 50;
+  width: min(360px, calc(100vw - 44px)); max-height: min(520px, calc(100vh - 140px));
+  display: flex; flex-direction: column; box-shadow: 0 10px 34px rgba(43, 29, 22, 0.24);
+}
+.chat-popup-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+
+/* ---------- toggle switch (AI kill switch) ---------- */
+.ai-toggle-row { display: flex; gap: 14px; align-items: flex-start; }
+.switch { position: relative; display: inline-block; width: 46px; height: 26px; flex-shrink: 0; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.switch-track {
+  position: absolute; inset: 0; background: var(--line); border-radius: 999px; transition: background 0.15s;
+}
+.switch-track::before {
+  content: ""; position: absolute; left: 3px; top: 3px; width: 20px; height: 20px;
+  background: #fff; border-radius: 999px; transition: transform 0.15s; box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+}
+.switch input:checked + .switch-track { background: var(--ok); }
+.switch input:checked + .switch-track::before { transform: translateX(20px); }
+
+/* ---------- menu management ---------- */
+.add-item-row { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+.add-item-row input { flex: 1; min-width: 140px; }
+.code-block {
+  display: block; background: var(--amber-soft); border: 1px solid var(--amber);
+  border-radius: 8px; padding: 8px 12px; font-family: Consolas, "Courier New", monospace;
+  font-size: 13px; margin-top: 8px;
+}
+
+/* ---------- digest as sole sidebar occupant ---------- */
+.digest-sidebar { position: sticky; top: 16px; }

@@ -1,0 +1,63 @@
+// Server-side OpenRouter helper. The API key lives only in server env —
+// every AI call goes browser -> our API route -> OpenRouter, never direct.
+
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const DEFAULT_MODEL = "openai/gpt-4o-mini";
+
+export class AiUnavailableError extends Error {}
+
+export function isAiConfigured(): boolean {
+  return Boolean(process.env.OPENROUTER_API_KEY);
+}
+
+export async function chatCompletion(params: {
+  system: string;
+  user: string;
+  jsonMode?: boolean;
+  maxTokens?: number;
+}): Promise<string> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new AiUnavailableError("OPENROUTER_API_KEY is not set");
+  }
+
+  const response = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://pizzaflow.vercel.app",
+      "X-Title": "PizzaFlow - SliceMatic",
+    },
+    body: JSON.stringify({
+      model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
+      messages: [
+        { role: "system", content: params.system },
+        { role: "user", content: params.user },
+      ],
+      temperature: 0.3,
+      max_tokens: params.maxTokens ?? 700,
+      ...(params.jsonMode ? { response_format: { type: "json_object" } } : {}),
+    }),
+    // A hung LLM call must never hang the counter: fail fast, order continues.
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new AiUnavailableError(`OpenRouter returned ${response.status}: ${body.slice(0, 300)}`);
+  }
+
+  const payload = await response.json();
+  const content = payload?.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || !content.trim()) {
+    throw new AiUnavailableError("OpenRouter returned an empty response");
+  }
+  return content;
+}
+
+/** Parse a JSON object out of an LLM reply, tolerating markdown fences. */
+export function parseJsonReply<T>(reply: string): T {
+  const cleaned = reply.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  return JSON.parse(cleaned) as T;
+}
