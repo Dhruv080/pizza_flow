@@ -8,12 +8,12 @@
 import { useEffect, useState } from "react";
 import AdminNav from "@/components/AdminNav";
 import InsightsChatWidget from "@/components/InsightsChatWidget";
-import { adminSignIn, adminSignOut, getAdminSession, isAiEnabled } from "@/lib/data";
+import { adminSignIn, adminSignOut, getAdminSession, getEffectiveAiFeatures } from "@/lib/data";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [checked, setChecked] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
-  const [aiEnabled, setAiEnabled] = useState(true);
+  const [insightsEnabled, setInsightsEnabled] = useState(true);
 
   useEffect(() => {
     getAdminSession().then((ok) => {
@@ -24,7 +24,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     if (!signedIn) return;
-    isAiEnabled().then(setAiEnabled);
+    getEffectiveAiFeatures().then((features) => setInsightsEnabled(features.insights));
   }, [signedIn]);
 
   if (!checked) return <p className="page-sub">Checking session…</p>;
@@ -39,7 +39,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         }}
       />
       {children}
-      {aiEnabled && <InsightsChatWidget />}
+      {insightsEnabled && <InsightsChatWidget />}
     </>
   );
 }

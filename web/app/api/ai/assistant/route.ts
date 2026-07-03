@@ -5,8 +5,7 @@
 // rules dispose.
 
 import { NextResponse } from "next/server";
-import { isAiEnabled } from "@/lib/data";
-import { ORDER_ASSISTANT_SYSTEM_PROMPT } from "@/lib/prompts";
+import { getAiModel, getAiPrompt, isAiFeatureEnabled } from "@/lib/data";
 import { AiUnavailableError, chatCompletion, parseJsonReply } from "@/lib/openrouter";
 import type { Menu } from "@/lib/types";
 
@@ -31,9 +30,10 @@ interface CartUpdate {
 }
 
 export async function POST(request: Request) {
-  // Admin kill switch, re-checked server-side so it can't be bypassed by
-  // calling this endpoint directly even if the UI is hidden client-side.
-  if (!(await isAiEnabled())) {
+  // Admin kill switch (master + this feature's own toggle), re-checked
+  // server-side so it can't be bypassed by calling this endpoint directly
+  // even if the UI is hidden client-side.
+  if (!(await isAiFeatureEnabled("assistant"))) {
     return NextResponse.json(
       { error: "AI features are currently turned off by the admin — please order using the menu below." },
       { status: 503 }
@@ -75,10 +75,12 @@ export async function POST(request: Request) {
     : "(empty)";
 
   try {
+    const [prompt, model] = await Promise.all([getAiPrompt("assistant"), getAiModel()]);
     const reply = await chatCompletion({
-      system: ORDER_ASSISTANT_SYSTEM_PROMPT.replace("{{MENU}}", menuText).replace("{{CART}}", cartText),
+      system: prompt.replace("{{MENU}}", menuText).replace("{{CART}}", cartText),
       user: message,
       jsonMode: true,
+      model,
     });
     const draft = parseJsonReply<{ lines?: DraftLine[]; cartUpdates?: CartUpdate[]; note?: string }>(reply);
     return NextResponse.json({

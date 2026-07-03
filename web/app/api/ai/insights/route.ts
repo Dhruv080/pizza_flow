@@ -4,13 +4,12 @@
 // the LLM only narrates them. It never touches the database.
 
 import { NextResponse } from "next/server";
-import { isAiEnabled } from "@/lib/data";
-import { INSIGHTS_SYSTEM_PROMPT } from "@/lib/prompts";
+import { getAiModel, getAiPrompt, isAiFeatureEnabled } from "@/lib/data";
 import { AiUnavailableError, chatCompletion } from "@/lib/openrouter";
 import type { OrderAggregates } from "@/lib/analytics";
 
 export async function POST(request: Request) {
-  if (!(await isAiEnabled())) {
+  if (!(await isAiFeatureEnabled("insights"))) {
     return NextResponse.json(
       { error: "AI features are currently turned off in Admin > Settings > AI." },
       { status: 503 }
@@ -31,13 +30,14 @@ export async function POST(request: Request) {
   }
 
   try {
+    const [prompt, model] = await Promise.all([getAiPrompt("insights"), getAiModel()]);
     const answer = await chatCompletion({
-      system: INSIGHTS_SYSTEM_PROMPT.replace("{{GENERATED_AT}}", aggregates.generatedAt).replace(
-        "{{AGGREGATES}}",
-        JSON.stringify(aggregates, null, 1)
-      ),
+      system: prompt
+        .replace("{{GENERATED_AT}}", aggregates.generatedAt)
+        .replace("{{AGGREGATES}}", JSON.stringify(aggregates, null, 1)),
       user: question,
       maxTokens: 400,
+      model,
     });
     return NextResponse.json({ answer });
   } catch (error) {

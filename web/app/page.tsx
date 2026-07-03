@@ -11,7 +11,7 @@ import {
   createOrder,
   getMenu,
   getOutletSettings,
-  isAiEnabled,
+  getEffectiveAiFeatures,
   isDemoMode,
   DEFAULT_OUTLET,
   type OutletSettings,
@@ -29,7 +29,8 @@ export default function OrderPage() {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [menuError, setMenuError] = useState("");
   const [outlet, setOutlet] = useState<OutletSettings>(DEFAULT_OUTLET);
-  const [aiEnabled, setAiEnabledState] = useState(true);
+  const [assistantEnabled, setAssistantEnabled] = useState(true);
+  const [upsellEnabled, setUpsellEnabled] = useState(true);
   // The waiter sets the table and hands the tablet over; a completed order
   // returns here so the next customer starts from a fresh table selection.
   const [tableNumber, setTableNumber] = useState<number | null>(null);
@@ -43,8 +44,11 @@ export default function OrderPage() {
     getOutletSettings()
       .then(setOutlet)
       .catch(() => {});
-    isAiEnabled()
-      .then(setAiEnabledState)
+    getEffectiveAiFeatures()
+      .then((features) => {
+        setAssistantEnabled(features.assistant);
+        setUpsellEnabled(features.upsell);
+      })
       .catch(() => {});
   }, []);
 
@@ -76,7 +80,8 @@ export default function OrderPage() {
       key={sessionKey}
       menu={menu}
       outletName={outlet.name}
-      aiEnabled={aiEnabled}
+      assistantEnabled={assistantEnabled}
+      upsellEnabled={upsellEnabled}
       tableNumber={tableNumber}
       sessionStartedAt={sessionStartedAt}
       onNewOrder={() => {
@@ -129,14 +134,16 @@ function TableGate({ outletName, onStart }: { outletName: string; onStart: (tabl
 function OrderFlow({
   menu,
   outletName,
-  aiEnabled,
+  assistantEnabled,
+  upsellEnabled,
   tableNumber,
   sessionStartedAt,
   onNewOrder,
 }: {
   menu: Menu;
   outletName: string;
-  aiEnabled: boolean;
+  assistantEnabled: boolean;
+  upsellEnabled: boolean;
   tableNumber: number;
   sessionStartedAt: string;
   onNewOrder: () => void;
@@ -296,7 +303,7 @@ function OrderFlow({
 
       <div className="order-grid">
         <div>
-          {aiEnabled && <AiAssistant menu={menu} cart={cart} onApply={applyAssistantDraft} />}
+          {assistantEnabled && <AiAssistant menu={menu} cart={cart} onApply={applyAssistantDraft} />}
 
           <div className="card" style={{ marginTop: 16 }}>
             <h2>Customer details</h2>
@@ -448,7 +455,7 @@ function OrderFlow({
 
             {cart.length > 0 && (
               <>
-                {aiEnabled && (
+                {upsellEnabled && (
                   <UpsellSuggestion
                     menu={menu}
                     cart={cart}

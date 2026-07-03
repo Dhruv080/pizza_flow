@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { computeAggregates, todaysOrders } from "@/lib/analytics";
 import { formatDateTime, formatPaise, paiseToRupees } from "@/lib/format";
-import { getOrders, isDemoMode } from "@/lib/data";
+import { getEffectiveAiFeatures, getOrders, isDemoMode } from "@/lib/data";
 import { PAYMENT_MODES, type CompletedOrder, type PaymentMode } from "@/lib/types";
 import { AdminDailyChart, type DailyPoint } from "@/components/AdminDailyChart";
 
@@ -22,11 +22,15 @@ export default function AdminPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(0);
+  const [digestEnabled, setDigestEnabled] = useState(true);
 
   useEffect(() => {
     getOrders()
       .then(setOrders)
       .catch((error: Error) => setLoadError(error.message));
+    getEffectiveAiFeatures()
+      .then((features) => setDigestEnabled(features.digest))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -120,12 +124,11 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <div className="admin-top-grid">
-        <AdminDailyChart data={dailySeries} />
-        <DigestCard todayAggregates={today} />
-      </div>
+      <div className="admin-grid">
+        <div className="admin-main-col">
+          <AdminDailyChart data={dailySeries} />
 
-      <div className="card">
+          <div className="card">
           <h2>All orders</h2>
           <div className="filter-bar">
             <input
@@ -245,6 +248,10 @@ export default function AdminPage() {
               </div>
             </div>
           )}
+          </div>
+        </div>
+
+        {digestEnabled && <DigestCard todayAggregates={today} />}
       </div>
     </>
   );

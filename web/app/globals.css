@@ -241,9 +241,13 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 
 /* ---------- admin ---------- */
 /* Chart (left) beside the End-of-Day digest (right); orders sit full-width below. */
-.admin-top-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; margin-bottom: 16px; }
-.admin-top-grid .daily-chart-card { margin-bottom: 0; }
-@media (max-width: 900px) { .admin-top-grid { grid-template-columns: 1fr; } }
+/* Primary data (chart + orders) in the main column; digest pinned beside it.
+   The main column is always the tall one, so the sidebar never leaves a void
+   no matter how long the generated report is. */
+.admin-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; margin-bottom: 16px; }
+.admin-main-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.admin-main-col .daily-chart-card { margin-bottom: 0; }
+@media (max-width: 900px) { .admin-grid { grid-template-columns: 1fr; } }
 .stat-row {
   display: grid; gap: 12px; margin-bottom: 16px;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -395,6 +399,59 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 }
 .switch input:checked + .switch-track { background: var(--ok); }
 .switch input:checked + .switch-track::before { transform: translateX(20px); }
+
+/* ---------- tabs (admin AI settings) ---------- */
+.tabs {
+  display: flex; gap: 4px; flex-wrap: wrap;
+  border-bottom: 2px solid var(--line); margin-bottom: 20px;
+}
+.tab-btn {
+  background: none; border: none; cursor: pointer;
+  font-weight: 700; font-size: 14px; color: var(--muted);
+  padding: 10px 16px; border-bottom: 3px solid transparent; margin-bottom: -2px;
+  transition: color 0.15s;
+}
+.tab-btn:hover { color: var(--ink); }
+.tab-btn.active { color: var(--brand); border-bottom-color: var(--brand); }
+
+/* per-feature sub-toggles under the master AI switch */
+.ai-subtoggles {
+  margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 14px;
+}
+.ai-subtoggle { display: flex; gap: 14px; align-items: flex-start; }
+.ai-subtoggle.disabled { opacity: 0.5; }
+
+/* model selection list */
+.model-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 4px; }
+.model-option {
+  display: flex; gap: 12px; align-items: flex-start;
+  border: 1.5px solid var(--line); border-radius: 10px; padding: 12px 14px;
+  cursor: pointer; transition: border-color 0.15s, background 0.15s; margin: 0;
+}
+.model-option:hover { border-color: var(--amber); }
+.model-option.selected { border-color: var(--brand); background: var(--err-soft); }
+.model-option input[type="radio"] { margin-top: 4px; width: auto; flex-shrink: 0; cursor: pointer; }
+.model-option label { font-weight: 700; }
+.model-slug {
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+  background: var(--amber-soft); color: var(--brand-dark);
+  padding: 1px 6px; border-radius: 5px;
+}
+
+/* prompt editor */
+.prompt-feature-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip {
+  background: #fff; border: 1.5px solid var(--line); border-radius: 999px;
+  padding: 7px 14px; font-size: 13px; font-weight: 700; color: var(--muted);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s;
+}
+.chip:hover { border-color: var(--amber); color: var(--ink); }
+.chip.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+.chip-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--amber); display: inline-block; }
+.chip.active .chip-dot { background: #fff; }
+.prompt-status-default { color: var(--ok); font-weight: 700; }
+.prompt-status-custom { color: var(--amber); font-weight: 700; }
 
 /* ---------- menu management ---------- */
 .expander-summary {

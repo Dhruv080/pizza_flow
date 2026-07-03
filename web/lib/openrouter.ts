@@ -1,8 +1,9 @@
 // Server-side OpenRouter helper. The API key lives only in server env —
 // every AI call goes browser -> our API route -> OpenRouter, never direct.
 
+import { DEFAULT_MODEL } from "./aiCatalog";
+
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const DEFAULT_MODEL = "openai/gpt-4o-mini";
 
 export class AiUnavailableError extends Error {}
 
@@ -15,6 +16,9 @@ export async function chatCompletion(params: {
   user: string;
   jsonMode?: boolean;
   maxTokens?: number;
+  // The admin-selected model (settings.ai_model), resolved by the caller.
+  // Falls back to OPENROUTER_MODEL then DEFAULT_MODEL if not provided.
+  model?: string;
 }): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -30,7 +34,7 @@ export async function chatCompletion(params: {
       "X-Title": "PizzaFlow - SliceMatic",
     },
     body: JSON.stringify({
-      model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
+      model: params.model || process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
       messages: [
         { role: "system", content: params.system },
         { role: "user", content: params.user },

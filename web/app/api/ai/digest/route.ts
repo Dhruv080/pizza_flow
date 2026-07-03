@@ -4,13 +4,12 @@
 // every number in it comes from the aggregates.
 
 import { NextResponse } from "next/server";
-import { isAiEnabled } from "@/lib/data";
-import { DIGEST_SYSTEM_PROMPT } from "@/lib/prompts";
+import { getAiModel, getAiPrompt, isAiFeatureEnabled } from "@/lib/data";
 import { AiUnavailableError, chatCompletion } from "@/lib/openrouter";
 import type { OrderAggregates } from "@/lib/analytics";
 
 export async function POST(request: Request) {
-  if (!(await isAiEnabled())) {
+  if (!(await isAiFeatureEnabled("digest"))) {
     return NextResponse.json(
       { error: "AI features are currently turned off in Admin > Settings > AI." },
       { status: 503 }
@@ -29,10 +28,12 @@ export async function POST(request: Request) {
   }
 
   try {
+    const [prompt, model] = await Promise.all([getAiPrompt("digest"), getAiModel()]);
     const digest = await chatCompletion({
-      system: DIGEST_SYSTEM_PROMPT.replace("{{AGGREGATES}}", JSON.stringify(body.aggregates, null, 1)),
+      system: prompt.replace("{{AGGREGATES}}", JSON.stringify(body.aggregates, null, 1)),
       user: "Write today's end-of-day report.",
       maxTokens: 400,
+      model,
     });
     return NextResponse.json({ digest });
   } catch (error) {

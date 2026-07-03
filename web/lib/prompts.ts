@@ -74,3 +74,49 @@ Rules:
 
 TODAY'S DATA:
 {{AGGREGATES}}`;
+
+// ---------------------------------------------------------------- registry
+// A single source of truth for the four AI features, used by the admin
+// "AI settings" screen (per-feature toggles + prompt editor) and by the
+// data layer to key its settings rows. `placeholders` are the {{TOKENS}} the
+// route substitutes at request time — the prompt editor refuses to save an
+// override that drops one, so an admin cannot accidentally break a feature.
+
+export const AI_FEATURES = ["assistant", "upsell", "insights", "digest"] as const;
+export type AiFeature = (typeof AI_FEATURES)[number];
+
+export const DEFAULT_PROMPTS: Record<AiFeature, string> = {
+  assistant: ORDER_ASSISTANT_SYSTEM_PROMPT,
+  upsell: UPSELL_SYSTEM_PROMPT,
+  insights: INSIGHTS_SYSTEM_PROMPT,
+  digest: DIGEST_SYSTEM_PROMPT,
+};
+
+export interface AiFeatureMeta {
+  label: string;
+  blurb: string;
+  placeholders: string[];
+}
+
+export const FEATURE_META: Record<AiFeature, AiFeatureMeta> = {
+  assistant: {
+    label: "Chat-to-order assistant",
+    blurb: "Customer ordering page — turns “what you feel like” into a draft cart.",
+    placeholders: ["{{MENU}}", "{{CART}}"],
+  },
+  upsell: {
+    label: "Topping upsell",
+    blurb: "Customer checkout — suggests one add-on topping for the cart.",
+    placeholders: ["{{TOPPINGS}}", "{{CART}}"],
+  },
+  insights: {
+    label: "Owner insights copilot",
+    blurb: "Admin dashboard — answers questions about the sales data.",
+    placeholders: ["{{GENERATED_AT}}", "{{AGGREGATES}}"],
+  },
+  digest: {
+    label: "End-of-day digest",
+    blurb: "Admin dashboard — writes the manager's end-of-day report.",
+    placeholders: ["{{AGGREGATES}}"],
+  },
+};

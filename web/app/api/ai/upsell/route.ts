@@ -3,14 +3,13 @@
 // Returns { toppingId, reason } or nulls. Ignoring the suggestion costs nothing.
 
 import { NextResponse } from "next/server";
-import { isAiEnabled } from "@/lib/data";
-import { UPSELL_SYSTEM_PROMPT } from "@/lib/prompts";
+import { getAiModel, getAiPrompt, isAiFeatureEnabled } from "@/lib/data";
 import { AiUnavailableError, chatCompletion, parseJsonReply } from "@/lib/openrouter";
 import type { MenuItem } from "@/lib/types";
 
 export async function POST(request: Request) {
   // Upsell is pure enhancement, so the kill switch just means "no suggestion".
-  if (!(await isAiEnabled())) {
+  if (!(await isAiFeatureEnabled("upsell"))) {
     return NextResponse.json({ toppingId: null, reason: "" }, { status: 503 });
   }
 
@@ -42,14 +41,13 @@ export async function POST(request: Request) {
     .join("\n");
 
   try {
+    const [prompt, model] = await Promise.all([getAiPrompt("upsell"), getAiModel()]);
     const reply = await chatCompletion({
-      system: UPSELL_SYSTEM_PROMPT.replace("{{TOPPINGS}}", toppingsText).replace(
-        "{{CART}}",
-        cartText
-      ),
+      system: prompt.replace("{{TOPPINGS}}", toppingsText).replace("{{CART}}", cartText),
       user: "Suggest one add-on for this cart.",
       jsonMode: true,
       maxTokens: 200,
+      model,
     });
     const suggestion = parseJsonReply<{ toppingId?: string | null; reason?: string }>(reply);
     const valid = toppings.find((t) => t.id === suggestion.toppingId);
