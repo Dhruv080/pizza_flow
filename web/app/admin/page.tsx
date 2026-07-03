@@ -19,6 +19,8 @@ export default function AdminPage() {
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [paymentFilter, setPaymentFilter] = useState<"All" | PaymentMode>("All");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(0);
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     setPage(0);
-  }, [search, paymentFilter]);
+  }, [search, paymentFilter, dateFrom, dateTo]);
 
   const aggregates = useMemo(() => (orders ? computeAggregates(orders) : null), [orders]);
   const today = useMemo(() => (orders ? computeAggregates(todaysOrders(orders)) : null), [orders]);
@@ -62,6 +64,9 @@ export default function AdminPage() {
     const q = search.trim().toLowerCase();
     return orders.filter((order) => {
       if (paymentFilter !== "All" && order.paymentMode !== paymentFilter) return false;
+      const orderDate = order.createdAt.slice(0, 10);
+      if (dateFrom && orderDate < dateFrom) return false;
+      if (dateTo && orderDate > dateTo) return false;
       if (!q) return true;
       const haystack = [
         order.customerName,
@@ -73,7 +78,7 @@ export default function AdminPage() {
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [orders, search, paymentFilter]);
+  }, [orders, search, paymentFilter, dateFrom, dateTo]);
 
   const pageCount = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
   const pagedOrders = filteredOrders.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
@@ -139,12 +144,22 @@ export default function AdminPage() {
                 </option>
               ))}
             </select>
-            {(search || paymentFilter !== "All") && (
+            <label className="filter-date-field">
+              From
+              <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)} />
+            </label>
+            <label className="filter-date-field">
+              To
+              <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} />
+            </label>
+            {(search || paymentFilter !== "All" || dateFrom || dateTo) && (
               <button
                 className="btn btn-small btn-secondary"
                 onClick={() => {
                   setSearch("");
                   setPaymentFilter("All");
+                  setDateFrom("");
+                  setDateTo("");
                 }}
               >
                 Clear

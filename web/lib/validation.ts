@@ -56,7 +56,7 @@ export function validateTotalQuantity(total: number): Result<number> {
   if (total < MIN_QUANTITY) return fail("The order must contain at least 1 pizza.");
   if (total > MAX_QUANTITY)
     return fail(
-      `Maximum ${MAX_QUANTITY} pizzas per order — your cart has ${total}. ` +
+      `Maximum ${MAX_QUANTITY} pizzas per order — that would take your cart to ${total}. ` +
         "Remove some, or place a second order."
     );
   return { ok: true, value: total };

@@ -48,13 +48,25 @@ export default function OutletSettingsPage() {
           />
         </div>
         <div className="field">
-          <label htmlFor="outlet-location">Location line</label>
-          <input
+          <label htmlFor="outlet-location">Address</label>
+          <textarea
             id="outlet-location"
-            type="text"
+            rows={3}
             value={outlet.location}
             onChange={(e) => {
               setOutlet({ ...outlet, location: e.target.value });
+              setStatus("idle");
+            }}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="outlet-phone">Phone number</label>
+          <input
+            id="outlet-phone"
+            type="tel"
+            value={outlet.phone}
+            onChange={(e) => {
+              setOutlet({ ...outlet, phone: e.target.value });
               setStatus("idle");
             }}
           />

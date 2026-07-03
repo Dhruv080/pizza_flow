@@ -358,11 +358,13 @@ function loadDemoOrders(): CompletedOrder[] {
 export interface OutletSettings {
   name: string;
   location: string;
+  phone: string;
 }
 
 export const DEFAULT_OUTLET: OutletSettings = {
   name: "SliceMatic",
   location: "New Ashok Nagar, Delhi",
+  phone: "",
 };
 
 const DEMO_SETTINGS_KEY = "pizzaflow_demo_settings";
@@ -382,18 +384,21 @@ export async function getOutletSettings(): Promise<OutletSettings> {
   return {
     name: map.outlet_name?.trim() || DEFAULT_OUTLET.name,
     location: map.outlet_location?.trim() || DEFAULT_OUTLET.location,
+    phone: map.outlet_phone?.trim() || DEFAULT_OUTLET.phone,
   };
 }
 
 export async function saveOutletSettings(settings: OutletSettings): Promise<string | null> {
   const name = settings.name.trim();
   const location = settings.location.trim();
+  const phone = settings.phone.trim();
   if (!name) return "The outlet name cannot be empty.";
   if (name.length > 40) return "The outlet name must be at most 40 characters.";
-  if (location.length > 60) return "The location must be at most 60 characters.";
+  if (location.length > 200) return "The address must be at most 200 characters.";
+  if (phone.length > 20) return "The phone number must be at most 20 characters.";
 
   if (isDemoMode) {
-    localStorage.setItem(DEMO_SETTINGS_KEY, JSON.stringify({ name, location }));
+    localStorage.setItem(DEMO_SETTINGS_KEY, JSON.stringify({ name, location, phone }));
     return null;
   }
   const { error } = await getSupabase()
@@ -401,6 +406,7 @@ export async function saveOutletSettings(settings: OutletSettings): Promise<stri
     .upsert([
       { key: "outlet_name", value: name },
       { key: "outlet_location", value: location },
+      { key: "outlet_phone", value: phone },
     ]);
   return error ? error.message : null;
 }
