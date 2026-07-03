@@ -69,33 +69,42 @@ function CategorySection({
   items: AdminMenuItem[];
   onChanged: () => void;
 }) {
+  const activeCount = items.filter((i) => i.isActive).length;
+
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
-      <h2>{label}</h2>
-      <table className="orders-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Price</th>
-            <th>Status</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.length === 0 && (
+    <details className="card expander" open style={{ marginBottom: 16 }}>
+      <summary className="expander-summary">
+        <h2 style={{ margin: 0 }}>{label}</h2>
+        <span className="expander-count">
+          {activeCount} active · {items.length} total
+        </span>
+      </summary>
+      <div className="expander-body">
+        <table className="orders-table">
+          <thead>
             <tr>
-              <td colSpan={4} style={{ color: "var(--muted)" }}>
-                No items yet.
-              </td>
+              <th>Name</th>
+              <th>Price</th>
+              <th>Status</th>
+              <th></th>
             </tr>
-          )}
-          {items.map((item) => (
-            <MenuItemRow key={item.id} item={item} onChanged={onChanged} />
-          ))}
-        </tbody>
-      </table>
-      <AddItemForm category={category} onAdded={onChanged} />
-    </div>
+          </thead>
+          <tbody>
+            {items.length === 0 && (
+              <tr>
+                <td colSpan={4} style={{ color: "var(--muted)" }}>
+                  No items yet.
+                </td>
+              </tr>
+            )}
+            {items.map((item) => (
+              <MenuItemRow key={item.id} item={item} onChanged={onChanged} />
+            ))}
+          </tbody>
+        </table>
+        <AddItemForm category={category} onAdded={onChanged} />
+      </div>
+    </details>
   );
 }
 

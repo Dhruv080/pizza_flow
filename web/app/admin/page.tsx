@@ -6,13 +6,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { computeAggregates, todaysOrders } from "@/lib/analytics";
-import { formatDateTime, formatPaise } from "@/lib/format";
+import { formatDateTime, formatPaise, paiseToRupees } from "@/lib/format";
 import { getOrders, isDemoMode } from "@/lib/data";
-import type { CompletedOrder } from "@/lib/types";
+import { PAYMENT_MODES, type CompletedOrder, type PaymentMode } from "@/lib/types";
+import { AdminDailyChart, type DailyPoint } from "@/components/AdminDailyChart";
+
+const PAGE_SIZE = 10;
+const CHART_DAYS = 14;
 
 export default function AdminPage() {
   const [orders, setOrders] = useState<CompletedOrder[] | null>(null);
   const [loadError, setLoadError] = useState("");
+  const [search, setSearch] = useState("");
+  const [paymentFilter, setPaymentFilter] = useState<"All" | PaymentMode>("All");
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     getOrders()
@@ -20,8 +27,56 @@ export default function AdminPage() {
       .catch((error: Error) => setLoadError(error.message));
   }, []);
 
+  useEffect(() => {
+    setPage(0);
+  }, [search, paymentFilter]);
+
   const aggregates = useMemo(() => (orders ? computeAggregates(orders) : null), [orders]);
   const today = useMemo(() => (orders ? computeAggregates(todaysOrders(orders)) : null), [orders]);
+
+  const dailySeries = useMemo<DailyPoint[]>(() => {
+    if (!orders) return [];
+    const byDate = new Map<string, { pizzas: number; revenue: number; discount: number }>();
+    for (const order of orders) {
+      const date = order.createdAt.slice(0, 10);
+      const entry = byDate.get(date) ?? { pizzas: 0, revenue: 0, discount: 0 };
+      entry.pizzas += order.lines.reduce((sum, line) => sum + line.quantity, 0);
+      entry.revenue += paiseToRupees(order.totalPaise);
+      entry.discount += paiseToRupees(order.discountPaise);
+      byDate.set(date, entry);
+    }
+    const series: DailyPoint[] = [];
+    const cursor = new Date();
+    for (let i = CHART_DAYS - 1; i >= 0; i--) {
+      const d = new Date(cursor);
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      const entry = byDate.get(key) ?? { pizzas: 0, revenue: 0, discount: 0 };
+      series.push({ date: key, ...entry });
+    }
+    return series;
+  }, [orders]);
+
+  const filteredOrders = useMemo(() => {
+    if (!orders) return [];
+    const q = search.trim().toLowerCase();
+    return orders.filter((order) => {
+      if (paymentFilter !== "All" && order.paymentMode !== paymentFilter) return false;
+      if (!q) return true;
+      const haystack = [
+        order.customerName,
+        order.phone,
+        order.tableNumber != null ? `table ${order.tableNumber}` : "",
+        ...order.lines.map((line) => line.pizzaName),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [orders, search, paymentFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+  const pagedOrders = filteredOrders.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
 
   if (loadError) return <div className="banner banner-error">Could not load orders: {loadError}</div>;
   if (!orders || !aggregates || !today) return <p className="page-sub">Loading orders…</p>;
@@ -60,9 +115,42 @@ export default function AdminPage() {
         </div>
       </div>
 
+      <AdminDailyChart data={dailySeries} />
+
       <div className="admin-grid">
         <div className="card">
           <h2>All orders</h2>
+          <div className="filter-bar">
+            <input
+              type="text"
+              placeholder="Search name, phone, table, pizza…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <select
+              className="select"
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value as "All" | PaymentMode)}
+            >
+              <option value="All">All payments</option>
+              {PAYMENT_MODES.map((mode) => (
+                <option key={mode} value={mode}>
+                  {mode}
+                </option>
+              ))}
+            </select>
+            {(search || paymentFilter !== "All") && (
+              <button
+                className="btn btn-small btn-secondary"
+                onClick={() => {
+                  setSearch("");
+                  setPaymentFilter("All");
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
           <div className="table-scroll">
             <table className="orders-table">
               <thead>
@@ -76,14 +164,14 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {orders.length === 0 && (
+                {filteredOrders.length === 0 && (
                   <tr>
                     <td colSpan={6} style={{ color: "var(--muted)" }}>
-                      No orders yet.
+                      {orders.length === 0 ? "No orders yet." : "No orders match your filters."}
                     </td>
                   </tr>
                 )}
-                {orders.map((order) => (
+                {pagedOrders.map((order) => (
                   <tr key={order.id}>
                     <td>{formatDateTime(order.createdAt)}</td>
                     <td>{order.tableNumber ?? "—"}</td>
@@ -113,6 +201,33 @@ export default function AdminPage() {
               </tbody>
             </table>
           </div>
+          {filteredOrders.length > 0 && (
+            <div className="pagination-bar">
+              <span>
+                {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filteredOrders.length)} of{" "}
+                {filteredOrders.length}
+              </span>
+              <div className="pagination-controls">
+                <button
+                  className="btn btn-small btn-secondary"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                >
+                  Prev
+                </button>
+                <span>
+                  Page {page + 1} of {pageCount}
+                </span>
+                <button
+                  className="btn btn-small btn-secondary"
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                  disabled={page >= pageCount - 1}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <DigestCard todayAggregates={today} />

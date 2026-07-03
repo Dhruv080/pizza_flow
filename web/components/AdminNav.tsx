@@ -6,10 +6,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 
 export default function AdminNav({ onSignOut }: { onSignOut: () => void }) {
   const pathname = usePathname();
   const isActive = (href: string) => pathname === href;
+  const settingsRef = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      const el = settingsRef.current;
+      if (el?.open && !el.contains(event.target as Node)) el.open = false;
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   return (
     <div className="admin-subnav">
@@ -20,16 +31,28 @@ export default function AdminNav({ onSignOut }: { onSignOut: () => void }) {
         <Link href="/admin/menu" className={isActive("/admin/menu") ? "active" : ""}>
           Menu management
         </Link>
-        <details className="dd admin-settings-dd">
+        <details className="dd admin-settings-dd" ref={settingsRef}>
           <summary>⚙ Settings</summary>
           <div className="dd-panel">
-            <Link href="/admin/settings/account" className="dd-item">
+            <Link
+              href="/admin/settings/account"
+              className="dd-item"
+              onClick={() => { if (settingsRef.current) settingsRef.current.open = false; }}
+            >
               Account settings
             </Link>
-            <Link href="/admin/settings/outlet" className="dd-item">
+            <Link
+              href="/admin/settings/outlet"
+              className="dd-item"
+              onClick={() => { if (settingsRef.current) settingsRef.current.open = false; }}
+            >
               Outlet settings
             </Link>
-            <Link href="/admin/settings/ai" className="dd-item">
+            <Link
+              href="/admin/settings/ai"
+              className="dd-item"
+              onClick={() => { if (settingsRef.current) settingsRef.current.open = false; }}
+            >
               AI settings
             </Link>
           </div>
