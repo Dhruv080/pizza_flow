@@ -1,6 +1,6 @@
 "use client";
 
-// Admin dashboard: stats, all orders, and the End-of-Day Digest. Auth,
+// Admin dashboard: stats, all orders, and Today's Digest. Auth,
 // navigation and the floating Insights chat widget live in app/admin/layout.tsx
 // — this page renders only once a session is confirmed.
 
@@ -155,6 +155,28 @@ export default function AdminPage() {
       )}
 
       <div className="stat-row-head">
+        {statPeriod === "custom" && (
+          <div className="stat-head-dates">
+            <label className="filter-date-field">
+              From
+              <input
+                type="date"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={(e) => editDate("from", e.target.value)}
+              />
+            </label>
+            <label className="filter-date-field">
+              To
+              <input
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(e) => editDate("to", e.target.value)}
+              />
+            </label>
+          </div>
+        )}
         <select
           className="select"
           value={statPeriod}
@@ -219,31 +241,12 @@ export default function AdminPage() {
               </option>
             ))}
           </select>
-          <label className="filter-date-field">
-            From
-            <input
-              type="date"
-              value={dateFrom}
-              max={dateTo || undefined}
-              onChange={(e) => editDate("from", e.target.value)}
-            />
-          </label>
-          <label className="filter-date-field">
-            To
-            <input
-              type="date"
-              value={dateTo}
-              min={dateFrom || undefined}
-              onChange={(e) => editDate("to", e.target.value)}
-            />
-          </label>
-          {(search || paymentFilter !== "All" || statPeriod !== "all") && (
+          {(search || paymentFilter !== "All") && (
             <button
               className="btn btn-small btn-secondary"
               onClick={() => {
                 setSearch("");
                 setPaymentFilter("All");
-                selectPeriod("all");
               }}
             >
               Clear
@@ -379,7 +382,7 @@ function DigestCard({ todayAggregates }: { todayAggregates: ReturnType<typeof co
   return (
     <div className="card ai-panel digest-sidebar">
       <h3>
-        End-of-day digest <span className="ai-sparkle" aria-hidden="true">✦</span>
+        Today&apos;s digest <span className="ai-sparkle" aria-hidden="true">✦</span>
       </h3>
       <p className="ai-note">
         One click, one manager&apos;s report on today&apos;s trading — revenue, top sellers,
