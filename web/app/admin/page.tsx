@@ -163,140 +163,154 @@ export default function AdminPage() {
       </div>
 
       <div className="admin-grid">
-        <div className="admin-main-col">
-          <AdminDailyChart data={dailySeries} />
-
-          <div className="card">
-          <h2>All orders</h2>
-          <div className="filter-bar">
-            <input
-              type="text"
-              placeholder="Search name, phone, table, pizza…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <select
-              className="select"
-              value={paymentFilter}
-              onChange={(e) => setPaymentFilter(e.target.value as "All" | PaymentMode)}
-            >
-              <option value="All">All payments</option>
-              {PAYMENT_MODES.map((mode) => (
-                <option key={mode} value={mode}>
-                  {mode}
-                </option>
-              ))}
-            </select>
-            <label className="filter-date-field">
-              From
-              <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)} />
-            </label>
-            <label className="filter-date-field">
-              To
-              <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} />
-            </label>
-            {(search || paymentFilter !== "All" || dateFrom || dateTo) && (
-              <button
-                className="btn btn-small btn-secondary"
-                onClick={() => {
-                  setSearch("");
-                  setPaymentFilter("All");
-                  setDateFrom("");
-                  setDateTo("");
-                }}
-              >
-                Clear
-              </button>
-            )}
-          </div>
-          <div className="table-scroll">
-            <table className="orders-table">
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>Table</th>
-                  <th>Customer</th>
-                  <th>Units</th>
-                  <th>Items ordered</th>
-                  <th>GST</th>
-                  <th>Discount</th>
-                  <th>Total</th>
-                  <th>Payment</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredOrders.length === 0 && (
-                  <tr>
-                    <td colSpan={9} style={{ color: "var(--muted)" }}>
-                      {orders.length === 0 ? "No orders yet." : "No orders match your filters."}
-                    </td>
-                  </tr>
-                )}
-                {pagedOrders.map((order) => (
-                  <tr key={order.id}>
-                    <td>{formatDateTime(order.createdAt)}</td>
-                    <td>{order.tableNumber ?? "—"}</td>
-                    <td>
-                      {order.customerName}
-                      <small>{order.phone}</small>
-                    </td>
-                    <td>{order.lines.reduce((sum, line) => sum + line.quantity, 0)}</td>
-                    <td>
-                      {order.lines.map((line, i) => (
-                        <div key={i}>
-                          {line.quantity}× {line.pizzaName}
-                          <small>
-                            {line.baseName}
-                            {line.toppingNames.length > 0 && ` · ${line.toppingNames.join(", ")}`}
-                          </small>
-                        </div>
-                      ))}
-                    </td>
-                    <td>{formatPaise(order.gstPaise)}</td>
-                    <td>{order.discountPaise > 0 ? formatPaise(order.discountPaise) : "—"}</td>
-                    <td>
-                      <strong>{formatPaise(order.totalPaise)}</strong>
-                    </td>
-                    <td>{order.paymentMode}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {filteredOrders.length > 0 && (
-            <div className="pagination-bar">
-              <span>
-                {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filteredOrders.length)} of{" "}
-                {filteredOrders.length}
-              </span>
-              <div className="pagination-controls">
-                <button
-                  className="btn btn-small btn-secondary"
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  disabled={page === 0}
-                >
-                  Prev
-                </button>
-                <span>
-                  Page {page + 1} of {pageCount}
-                </span>
-                <button
-                  className="btn btn-small btn-secondary"
-                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-                  disabled={page >= pageCount - 1}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          )}
-          </div>
-        </div>
+        <AdminDailyChart data={dailySeries} />
 
         {digestEnabled && <DigestCard todayAggregates={today} />}
       </div>
+
+      <div className="card">
+        <h2>All orders</h2>
+        <div className="filter-bar">
+          <input
+            type="text"
+            placeholder="Search name, phone, table, pizza…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select
+            className="select"
+            value={paymentFilter}
+            onChange={(e) => setPaymentFilter(e.target.value as "All" | PaymentMode)}
+          >
+            <option value="All">All payments</option>
+            {PAYMENT_MODES.map((mode) => (
+              <option key={mode} value={mode}>
+                {mode}
+              </option>
+            ))}
+          </select>
+          <label className="filter-date-field">
+            From
+            <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)} />
+          </label>
+          <label className="filter-date-field">
+            To
+            <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} />
+          </label>
+          {(search || paymentFilter !== "All" || dateFrom || dateTo) && (
+            <button
+              className="btn btn-small btn-secondary"
+              onClick={() => {
+                setSearch("");
+                setPaymentFilter("All");
+                setDateFrom("");
+                setDateTo("");
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="table-scroll">
+          <table className="orders-table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Table</th>
+                <th>Customer</th>
+                <th>Units</th>
+                <th>Items ordered</th>
+                <th>GST</th>
+                <th>Discount</th>
+                <th>Total</th>
+                <th>Payment</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredOrders.length === 0 && (
+                <tr>
+                  <td colSpan={9} style={{ color: "var(--muted)" }}>
+                    {orders.length === 0 ? "No orders yet." : "No orders match your filters."}
+                  </td>
+                </tr>
+              )}
+              {pagedOrders.map((order) => (
+                <tr key={order.id}>
+                  <td>{formatDateTime(order.createdAt)}</td>
+                  <td>{order.tableNumber ?? "—"}</td>
+                  <td>
+                    {order.customerName}
+                    <small>{order.phone}</small>
+                  </td>
+                  <td>{order.lines.reduce((sum, line) => sum + line.quantity, 0)}</td>
+                  <td>
+                    {order.lines.map((line, i) => (
+                      <div key={i}>
+                        {line.quantity}× {line.pizzaName}
+                        <small>
+                          {line.baseName}
+                          {line.toppingNames.length > 0 && ` · ${line.toppingNames.join(", ")}`}
+                        </small>
+                      </div>
+                    ))}
+                  </td>
+                  <td>{formatPaise(order.gstPaise)}</td>
+                  <td>{order.discountPaise > 0 ? formatPaise(order.discountPaise) : "—"}</td>
+                  <td>
+                    <strong>{formatPaise(order.totalPaise)}</strong>
+                  </td>
+                  <td>{order.paymentMode}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {filteredOrders.length > 0 && (
+          <div className="pagination-bar">
+            <span>
+              {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filteredOrders.length)} of{" "}
+              {filteredOrders.length}
+            </span>
+            <div className="pagination-controls">
+              <button
+                className="btn btn-small btn-secondary"
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={page === 0}
+              >
+                Prev
+              </button>
+              <span>
+                Page {page + 1} of {pageCount}
+              </span>
+              <button
+                className="btn btn-small btn-secondary"
+                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                disabled={page >= pageCount - 1}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </>
   );
+}
+
+function topSellerName(aggregates: ReturnType<typeof computeAggregates>): string {
+  const entries = Object.entries(aggregates.pizzasSold);
+  if (entries.length === 0) return "—";
+  return entries.reduce((best, cur) => (cur[1] > best[1] ? cur : best))[0];
+}
+
+function paymentSplitLabel(aggregates: ReturnType<typeof computeAggregates>): string {
+  const total = aggregates.orderCount;
+  if (total === 0) return "—";
+  const parts = PAYMENT_MODES.map((mode) => {
+    const count = aggregates.byPaymentMode[mode]?.orders ?? 0;
+    return count > 0 ? `${mode} ${Math.round((count / total) * 100)}%` : null;
+  }).filter((part): part is string => part !== null);
+  return parts.length > 0 ? parts.join(" · ") : "—";
 }
 
 function DigestCard({ todayAggregates }: { todayAggregates: ReturnType<typeof computeAggregates> }) {
@@ -332,6 +346,20 @@ function DigestCard({ todayAggregates }: { todayAggregates: ReturnType<typeof co
         One click, one manager&apos;s report on today&apos;s trading — revenue, top sellers,
         discounts given, GST collected, payment split, and anything unusual.
       </p>
+      <div className="digest-stats">
+        <div className="digest-stat-row">
+          <span>Top seller</span>
+          <strong>{topSellerName(todayAggregates)}</strong>
+        </div>
+        <div className="digest-stat-row">
+          <span>GST collected</span>
+          <strong>{formatPaise(Math.round(todayAggregates.totalGstCollected * 100))}</strong>
+        </div>
+        <div className="digest-stat-row">
+          <span>Payment split</span>
+          <strong>{paymentSplitLabel(todayAggregates)}</strong>
+        </div>
+      </div>
       <button className="btn" style={{ marginTop: 10, width: "100%" }} onClick={generate} disabled={busy}>
         {busy ? <span className="spinner">writing…</span> : "Write today's report"}
       </button>

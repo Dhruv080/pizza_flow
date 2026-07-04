@@ -240,13 +240,9 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 .receipt hr { border: none; border-top: 1px dashed var(--line); margin: 8px 0; }
 
 /* ---------- admin ---------- */
-/* Chart (left) beside the End-of-Day digest (right); orders sit full-width below. */
-/* Primary data (chart + orders) in the main column; digest pinned beside it.
-   The main column is always the tall one, so the sidebar never leaves a void
-   no matter how long the generated report is. */
+/* Chart beside the End-of-Day digest; orders table sits full-width below both. */
 .admin-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; margin-bottom: 16px; }
-.admin-main-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.admin-main-col .daily-chart-card { margin-bottom: 0; }
+.admin-grid .daily-chart-card { margin-bottom: 0; }
 @media (max-width: 900px) { .admin-grid { grid-template-columns: 1fr; } }
 .stat-row-head { display: flex; justify-content: flex-end; margin-bottom: 12px; }
 .stat-row-head .select { width: auto; min-width: 140px; }
@@ -279,6 +275,14 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 .chat-a { background: #fff; border: 1px solid var(--line); align-self: flex-start; white-space: pre-wrap; border-bottom-left-radius: 4px; }
 
 .digest-box { white-space: pre-wrap; font-size: 13.5px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 10px; }
+
+.digest-stats { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.digest-stat-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13px;
+}
+.digest-stat-row span { color: var(--muted); }
+.digest-stat-row strong { text-align: right; }
 
 .spinner { display: inline-block; animation: pulse 1s infinite; font-weight: 700; }
 @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
