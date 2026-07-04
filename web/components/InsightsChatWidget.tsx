@@ -77,11 +77,26 @@ export default function InsightsChatWidget() {
                 <small>Ask your business anything</small>
               </div>
             </div>
-            <button className="chat-close" aria-label="Close" onClick={() => setOpen(false)}>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            </button>
+            <div className="chat-popup-actions">
+              {log.length > 0 && (
+                <button className="chat-close" aria-label="Clear chat" title="Clear chat" onClick={() => setLog([])}>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path
+                      d="M2.5 4h11M6 4V2.5A.5.5 0 0 1 6.5 2h3a.5.5 0 0 1 .5.5V4m1.5 0-.6 9a1 1 0 0 1-1 .9H5.6a1 1 0 0 1-1-.9L4 4"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              )}
+              <button className="chat-close" aria-label="Close" onClick={() => setOpen(false)}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <div className="chat-body">

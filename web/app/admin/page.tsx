@@ -14,23 +14,35 @@ import { AdminDailyChart, type DailyPoint } from "@/components/AdminDailyChart";
 const PAGE_SIZE = 10;
 const CHART_DAYS = 14;
 
-type StatPeriod = "today" | "7d" | "30d" | "all";
+type StatPeriod = "today" | "7d" | "30d" | "all" | "custom";
 
 const PERIOD_LABELS: Record<StatPeriod, string> = {
   today: "Today",
   "7d": "Last 7 days",
   "30d": "Last 30 days",
   all: "All time",
+  custom: "Custom range",
 };
 
-function ordersInPeriod(orders: CompletedOrder[], period: StatPeriod): CompletedOrder[] {
-  if (period === "all") return orders;
-  if (period === "today") return todaysOrders(orders);
+// yyyy-mm-dd bounds for a preset period, in local time — used to drive both the
+// stat cards and the orders table's own date filter from the one dropdown.
+function presetRange(period: Exclude<StatPeriod, "custom">): { from: string; to: string } {
+  const today = new Date().toISOString().slice(0, 10);
+  if (period === "all") return { from: "", to: "" };
+  if (period === "today") return { from: today, to: today };
   const days = period === "7d" ? 7 : 30;
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - (days - 1));
-  cutoff.setHours(0, 0, 0, 0);
-  return orders.filter((o) => new Date(o.createdAt) >= cutoff);
+  const from = new Date();
+  from.setDate(from.getDate() - (days - 1));
+  return { from: from.toISOString().slice(0, 10), to: today };
+}
+
+function ordersInRange(orders: CompletedOrder[], from: string, to: string): CompletedOrder[] {
+  return orders.filter((o) => {
+    const date = o.createdAt.slice(0, 10);
+    if (from && date < from) return false;
+    if (to && date > to) return false;
+    return true;
+  });
 }
 
 export default function AdminPage() {
@@ -38,11 +50,29 @@ export default function AdminPage() {
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [paymentFilter, setPaymentFilter] = useState<"All" | PaymentMode>("All");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [statPeriod, setStatPeriod] = useState<StatPeriod>("today");
+  const [dateFrom, setDateFrom] = useState(() => presetRange("today").from);
+  const [dateTo, setDateTo] = useState(() => presetRange("today").to);
   const [page, setPage] = useState(0);
   const [digestEnabled, setDigestEnabled] = useState(true);
-  const [statPeriod, setStatPeriod] = useState<StatPeriod>("today");
+
+  // The period dropdown is the one control for both the stat cards and the
+  // orders table below: picking a preset sets the date range; editing a date
+  // field directly switches the dropdown to "Custom range" so the two stay in sync.
+  function selectPeriod(next: StatPeriod) {
+    setStatPeriod(next);
+    if (next !== "custom") {
+      const { from, to } = presetRange(next);
+      setDateFrom(from);
+      setDateTo(to);
+    }
+  }
+
+  function editDate(which: "from" | "to", value: string) {
+    if (which === "from") setDateFrom(value);
+    else setDateTo(value);
+    setStatPeriod("custom");
+  }
 
   useEffect(() => {
     getOrders()
@@ -59,8 +89,8 @@ export default function AdminPage() {
 
   const today = useMemo(() => (orders ? computeAggregates(todaysOrders(orders)) : null), [orders]);
   const periodStats = useMemo(
-    () => (orders ? computeAggregates(ordersInPeriod(orders, statPeriod)) : null),
-    [orders, statPeriod],
+    () => (orders ? computeAggregates(ordersInRange(orders, dateFrom, dateTo)) : null),
+    [orders, dateFrom, dateTo],
   );
 
   const dailySeries = useMemo<DailyPoint[]>(() => {
@@ -128,7 +158,7 @@ export default function AdminPage() {
         <select
           className="select"
           value={statPeriod}
-          onChange={(e) => setStatPeriod(e.target.value as StatPeriod)}
+          onChange={(e) => selectPeriod(e.target.value as StatPeriod)}
         >
           {(Object.keys(PERIOD_LABELS) as StatPeriod[]).map((p) => (
             <option key={p} value={p}>
@@ -191,20 +221,29 @@ export default function AdminPage() {
           </select>
           <label className="filter-date-field">
             From
-            <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)} />
+            <input
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(e) => editDate("from", e.target.value)}
+            />
           </label>
           <label className="filter-date-field">
             To
-            <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} />
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(e) => editDate("to", e.target.value)}
+            />
           </label>
-          {(search || paymentFilter !== "All" || dateFrom || dateTo) && (
+          {(search || paymentFilter !== "All" || statPeriod !== "all") && (
             <button
               className="btn btn-small btn-secondary"
               onClick={() => {
                 setSearch("");
                 setPaymentFilter("All");
-                setDateFrom("");
-                setDateTo("");
+                selectPeriod("all");
               }}
             >
               Clear

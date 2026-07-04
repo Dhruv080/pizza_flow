@@ -241,7 +241,7 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 
 /* ---------- admin ---------- */
 /* Chart beside the End-of-Day digest; orders table sits full-width below both. */
-.admin-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; margin-bottom: 16px; }
+.admin-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; margin-bottom: 16px; }
 .admin-grid .daily-chart-card { margin-bottom: 0; }
 @media (max-width: 900px) { .admin-grid { grid-template-columns: 1fr; } }
 .stat-row-head { display: flex; justify-content: flex-end; margin-bottom: 12px; }
@@ -354,6 +354,7 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 .chat-popup-title small { display: block; font-size: 11.5px; opacity: 0.85; }
 .chat-popup-head .ai-sparkle { color: #ffd25e; }
 .chat-popup-head .ai-sparkle::after { color: #ffb3ab; }
+.chat-popup-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .chat-close {
   width: 30px; height: 30px; border-radius: 999px; border: none; cursor: pointer;
   background: rgba(255, 255, 255, 0.14); color: #fff; flex-shrink: 0;
