@@ -14,6 +14,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [checked, setChecked] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [insightsEnabled, setInsightsEnabled] = useState(true);
+  const [digestEnabled, setDigestEnabled] = useState(true);
 
   useEffect(() => {
     getAdminSession().then((ok) => {
@@ -24,7 +25,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     if (!signedIn) return;
-    getEffectiveAiFeatures().then((features) => setInsightsEnabled(features.insights));
+    getEffectiveAiFeatures().then((features) => {
+      setInsightsEnabled(features.insights);
+      setDigestEnabled(features.digest);
+    });
   }, [signedIn]);
 
   if (!checked) return <p className="page-sub">Checking session…</p>;
@@ -39,7 +43,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         }}
       />
       {children}
-      {insightsEnabled && <InsightsChatWidget />}
+      {(insightsEnabled || digestEnabled) && (
+        <InsightsChatWidget insightsEnabled={insightsEnabled} digestEnabled={digestEnabled} />
+      )}
     </>
   );
 }

@@ -7,7 +7,13 @@ import { computeBill } from "./billing";
 import { DEFAULT_MODEL, isValidModelSlug } from "./aiCatalog";
 import { DEMO_MENU } from "./demoMenu";
 import { rupeesToPaise, paiseToRupees } from "./format";
-import { AI_FEATURES, DEFAULT_PROMPTS, FEATURE_META, type AiFeature } from "./prompts";
+import {
+  AI_FEATURES,
+  MAX_CUSTOM_INSTRUCTIONS,
+  composeSystemPrompt,
+  sanitizeCustomInstructions,
+  type AiFeature,
+} from "./prompts";
 import { getSupabase, getSupabaseAdmin, isSupabaseConfigured } from "./supabase";
 import { generateUUID } from "./uuid";
 import type { CartLine, CompletedOrder, Menu, MenuCategory, MenuItem, PaymentMode } from "./types";
@@ -457,17 +463,20 @@ export async function setAiEnabled(enabled: boolean): Promise<string | null> {
 // them in localStorage):
 //   * ai_feature_<name>  — a per-feature on/off flag (default on)
 //   * ai_model           — the OpenRouter model id (default: env / DEFAULT_MODEL)
-//   * ai_prompt_<name>   — an optional system-prompt override (absent = default)
+//   * ai_custom_<name>   — optional owner "custom instructions" for a feature.
+//                          NOT the full prompt: the base prompts stay hidden in
+//                          lib/prompts.ts and this text is folded into them,
+//                          fenced and lower-priority, at request time.
 // Everything is enforced server-side in the /api/ai/* routes, never trusted
 // from the client. A feature is live only when the master switch AND its own
 // flag are on.
 
 const DEMO_AI_FEATURES_KEY = "pizzaflow_demo_ai_features";
 const DEMO_AI_MODEL_KEY = "pizzaflow_demo_ai_model";
-const DEMO_AI_PROMPTS_KEY = "pizzaflow_demo_ai_prompts";
+const DEMO_AI_CUSTOM_KEY = "pizzaflow_demo_ai_custom";
 
 const featureFlagKey = (feature: AiFeature) => `ai_feature_${feature}`;
-const promptKey = (feature: AiFeature) => `ai_prompt_${feature}`;
+const customKey = (feature: AiFeature) => `ai_custom_${feature}`;
 
 /** Read several settings rows at once, keyed by their `key`. */
 async function getSettingsMap(keys: string[]): Promise<Record<string, string>> {
@@ -559,64 +568,76 @@ export async function setAiModel(model: string): Promise<string | null> {
   return error ? error.message : null;
 }
 
-/** Every feature's saved prompt override (absent key = using the default). */
-export async function getAiPromptOverrides(): Promise<Partial<Record<AiFeature, string>>> {
+/**
+ * Every feature's saved custom instructions (absent key = none). This is the
+ * short owner-supplied text only — never the base prompt, which is never
+ * stored and never leaves the server-side prompts module.
+ */
+export async function getAiCustomInstructions(): Promise<Partial<Record<AiFeature, string>>> {
   if (isDemoMode) {
     if (typeof localStorage === "undefined") return {};
     try {
-      return JSON.parse(localStorage.getItem(DEMO_AI_PROMPTS_KEY) ?? "{}");
+      return JSON.parse(localStorage.getItem(DEMO_AI_CUSTOM_KEY) ?? "{}");
     } catch {
       return {};
     }
   }
-  const map = await getSettingsMap(AI_FEATURES.map(promptKey));
-  const overrides: Partial<Record<AiFeature, string>> = {};
+  const map = await getSettingsMap(AI_FEATURES.map(customKey));
+  const custom: Partial<Record<AiFeature, string>> = {};
   for (const feature of AI_FEATURES) {
-    const value = map[promptKey(feature)];
-    if (value != null && value !== "") overrides[feature] = value;
+    const value = map[customKey(feature)];
+    if (value != null && value !== "") custom[feature] = value;
   }
-  return overrides;
+  return custom;
 }
 
-/** The prompt the route should actually use: override if set, else default. */
+/**
+ * The system prompt a route should actually use: the hidden base for the
+ * feature with the owner's sanitised custom instructions folded in (fenced and
+ * lower-priority). Data placeholders are left for the route to substitute.
+ */
 export async function getAiPrompt(feature: AiFeature): Promise<string> {
-  const override = (await getAiPromptOverrides())[feature];
-  return override ?? DEFAULT_PROMPTS[feature];
+  const custom = (await getAiCustomInstructions())[feature];
+  return composeSystemPrompt(feature, custom);
 }
 
-export async function setAiPrompt(feature: AiFeature, text: string): Promise<string | null> {
-  const prompt = text.trim();
-  if (!prompt) return "The prompt cannot be empty. Use Reset to restore the default.";
-  if (prompt.length > 8000) return "The prompt must be at most 8000 characters.";
-  const missing = FEATURE_META[feature].placeholders.filter((p) => !prompt.includes(p));
-  if (missing.length) {
-    return `This prompt must keep the placeholder${missing.length > 1 ? "s" : ""} ${missing.join(", ")} — the app fills ${missing.length > 1 ? "them" : "it"} in at request time.`;
+/**
+ * Save the owner's custom instructions for a feature. The text is a *tweak*
+ * layered onto the hidden base prompt — validated only for length, then
+ * sanitised (fence/control-char stripping) before storage and again when
+ * composed at request time.
+ */
+export async function setAiCustomInstructions(feature: AiFeature, text: string): Promise<string | null> {
+  const notes = sanitizeCustomInstructions(text);
+  if (!notes) return "Enter some instructions, or use Clear to remove them.";
+  if (text.trim().length > MAX_CUSTOM_INSTRUCTIONS) {
+    return `Keep custom instructions to at most ${MAX_CUSTOM_INSTRUCTIONS} characters.`;
   }
   if (isDemoMode) {
     if (typeof localStorage !== "undefined") {
-      const overrides = await getAiPromptOverrides();
-      overrides[feature] = prompt;
-      localStorage.setItem(DEMO_AI_PROMPTS_KEY, JSON.stringify(overrides));
+      const all = await getAiCustomInstructions();
+      all[feature] = notes;
+      localStorage.setItem(DEMO_AI_CUSTOM_KEY, JSON.stringify(all));
     }
     return null;
   }
   const { error } = await getSupabase()
     .from("settings")
-    .upsert({ key: promptKey(feature), value: prompt });
+    .upsert({ key: customKey(feature), value: notes });
   return error ? error.message : null;
 }
 
-/** Drop the override so the feature reverts to its built-in default prompt. */
-export async function resetAiPrompt(feature: AiFeature): Promise<string | null> {
+/** Clear the owner's custom instructions so the feature uses the base prompt as-is. */
+export async function clearAiCustomInstructions(feature: AiFeature): Promise<string | null> {
   if (isDemoMode) {
     if (typeof localStorage !== "undefined") {
-      const overrides = await getAiPromptOverrides();
-      delete overrides[feature];
-      localStorage.setItem(DEMO_AI_PROMPTS_KEY, JSON.stringify(overrides));
+      const all = await getAiCustomInstructions();
+      delete all[feature];
+      localStorage.setItem(DEMO_AI_CUSTOM_KEY, JSON.stringify(all));
     }
     return null;
   }
-  const { error } = await getSupabase().from("settings").delete().eq("key", promptKey(feature));
+  const { error } = await getSupabase().from("settings").delete().eq("key", customKey(feature));
   return error ? error.message : null;
 }
 

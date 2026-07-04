@@ -10,6 +10,7 @@ import { formatDateTime, formatPaise, paiseToRupees } from "@/lib/format";
 import { getEffectiveAiFeatures, getOrders, isDemoMode } from "@/lib/data";
 import { PAYMENT_MODES, type CompletedOrder, type PaymentMode } from "@/lib/types";
 import { AdminDailyChart, type DailyPoint } from "@/components/AdminDailyChart";
+import { requestDigestInChat } from "@/lib/insightsChatBus";
 
 const PAGE_SIZE = 10;
 const CHART_DAYS = 14; // trailing window shown when the range is open-ended
@@ -389,27 +390,14 @@ function paymentSplitLabel(aggregates: ReturnType<typeof computeAggregates>): st
 }
 
 function DigestCard({ todayAggregates }: { todayAggregates: ReturnType<typeof computeAggregates> }) {
-  const [digest, setDigest] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
 
-  async function generate() {
-    setBusy(true);
-    setError("");
-    try {
-      const response = await fetch("/api/ai/digest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ aggregates: todayAggregates }),
-      });
-      const payload = await response.json();
-      if (response.ok) setDigest(payload.digest);
-      else setError(payload.error ?? "Unavailable right now.");
-    } catch {
-      setError("The digest writer is unavailable right now.");
-    } finally {
-      setBusy(false);
-    }
+  // The report is written into the Insights chat popup (see InsightsChatWidget)
+  // rather than in a box here, so the manager reads it in the same place they
+  // ask follow-up questions. requestDigestInChat returns false only if that
+  // widget isn't mounted (the copilot is off) — then we say so.
+  function openReport() {
+    setUnavailable(!requestDigestInChat());
   }
 
   return (
@@ -419,7 +407,8 @@ function DigestCard({ todayAggregates }: { todayAggregates: ReturnType<typeof co
       </h3>
       <p className="ai-note">
         One click, one manager&apos;s report on today&apos;s trading — revenue, top sellers,
-        discounts given, GST collected, payment split, and anything unusual.
+        discounts given, GST collected, payment split, and anything unusual. It opens in the
+        Copilot chat so you can ask follow-ups.
       </p>
       <div className="digest-stats">
         <div className="digest-stat-row">
@@ -435,11 +424,12 @@ function DigestCard({ todayAggregates }: { todayAggregates: ReturnType<typeof co
           <strong>{paymentSplitLabel(todayAggregates)}</strong>
         </div>
       </div>
-      <button className="btn" style={{ marginTop: 10, width: "100%" }} onClick={generate} disabled={busy}>
-        {busy ? <span className="spinner">writing…</span> : "Write today's report"}
+      <button className="btn" style={{ marginTop: 10, width: "100%" }} onClick={openReport}>
+        Write today&apos;s report
       </button>
-      {error && <p className="error-text">{error}</p>}
-      {digest && <div className="digest-box">{digest}</div>}
+      {unavailable && (
+        <p className="error-text">Turn on the Insights copilot to read the report in chat.</p>
+      )}
     </div>
   );
 }

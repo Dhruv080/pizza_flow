@@ -72,7 +72,7 @@ function CategorySection({
   const activeCount = items.filter((i) => i.isActive).length;
 
   return (
-    <details className="card expander" open style={{ marginBottom: 16 }}>
+    <details className="card expander" style={{ marginBottom: 16 }}>
       <summary className="expander-summary">
         <h2 style={{ margin: 0 }}>{label}</h2>
         <span className="expander-count">

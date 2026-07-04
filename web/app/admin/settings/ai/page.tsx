@@ -1,15 +1,17 @@
 "use client";
 
 // AI settings — three tabs:
-//   1. Features  — the master AI kill switch plus a per-feature sub-toggle for
+//   1. Features   — the master AI kill switch plus a per-feature sub-toggle for
 //      each of the four AI features.
-//   2. Model     — which OpenRouter model every AI feature uses.
-//   3. Prompts   — the editable system prompt behind each AI feature.
+//   2. Model      — which OpenRouter model every AI feature uses.
+//   3. Customise  — optional per-feature "custom instructions". The real system
+//      prompts stay hidden on the server; this only edits the short owner text
+//      folded into them (fenced and lower-priority) at request time.
 //
 // Everything here is enforced server-side in the /api/ai/* routes (the master
-// switch, the per-feature flags, the chosen model and the prompt overrides),
+// switch, the per-feature flags, the chosen model and the custom instructions),
 // never trusted from the client — the UI just reflects and edits the stored
-// settings. See lib/data.ts for the storage and lib/prompts.ts for defaults.
+// settings. See lib/data.ts for storage and lib/prompts.ts for the base prompts.
 
 import { useEffect, useState } from "react";
 import {
@@ -19,23 +21,23 @@ import {
   setAiFeatureFlag,
   getAiModel,
   setAiModel,
-  getAiPromptOverrides,
-  setAiPrompt,
-  resetAiPrompt,
+  getAiCustomInstructions,
+  setAiCustomInstructions,
+  clearAiCustomInstructions,
   getStoredOpenRouterKeyMasked,
   setOpenRouterKey,
   clearOpenRouterKey,
   isDemoMode,
 } from "@/lib/data";
-import { AI_FEATURES, DEFAULT_PROMPTS, FEATURE_META, type AiFeature } from "@/lib/prompts";
+import { AI_FEATURES, FEATURE_META, MAX_CUSTOM_INSTRUCTIONS, type AiFeature } from "@/lib/prompts";
 import { AI_MODEL_OPTIONS } from "@/lib/aiCatalog";
 
-type Tab = "features" | "model" | "prompts";
+type Tab = "features" | "model" | "customise";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "features", label: "Features" },
   { id: "model", label: "Model" },
-  { id: "prompts", label: "Prompts" },
+  { id: "customise", label: "Customise" },
 ];
 
 export default function AiSettingsPage() {
@@ -45,8 +47,8 @@ export default function AiSettingsPage() {
     <>
       <h1>AI settings</h1>
       <p className="page-sub">
-        Turn AI features on or off, choose the model, and edit the prompts behind each feature.
-        Ordering, billing, GST and payment are never affected — this only controls the AI panels.
+        Turn AI features on or off, choose the model, and add custom instructions to fine-tune each
+        feature. Ordering, billing, GST and payment are never affected — this only controls the AI panels.
       </p>
 
       {isDemoMode && (
@@ -73,7 +75,7 @@ export default function AiSettingsPage() {
 
       {tab === "features" && <FeaturesTab />}
       {tab === "model" && <ModelTab />}
-      {tab === "prompts" && <PromptsTab />}
+      {tab === "customise" && <CustomiseTab />}
     </>
   );
 }
@@ -400,13 +402,21 @@ function ApiKeySection() {
   );
 }
 
-// ------------------------------------------------------------------- Prompts
+// ----------------------------------------------------------------- Customise
+// The admin never sees the underlying system prompts — that would give away the
+// app's prompt engineering. This tab only edits a short block of "custom
+// instructions" per feature, which the server folds into the hidden base prompt
+// (fenced and explicitly lower-priority) at request time. See lib/prompts.ts.
 
-function PromptsTab() {
+function CustomiseTab() {
   const [feature, setFeature] = useState<AiFeature>("assistant");
-  const [drafts, setDrafts] = useState<Record<AiFeature, string>>(() => ({ ...DEFAULT_PROMPTS }));
-  const [overridden, setOverridden] = useState<Record<AiFeature, boolean>>(
-    () => Object.fromEntries(AI_FEATURES.map((f) => [f, false])) as Record<AiFeature, boolean>
+  const [drafts, setDrafts] = useState<Record<AiFeature, string>>(
+    () => Object.fromEntries(AI_FEATURES.map((f) => [f, ""])) as Record<AiFeature, string>
+  );
+  // What is actually saved on the server, per feature — used to show the
+  // "Customised" dot and to enable/disable the buttons.
+  const [saved, setSaved] = useState<Record<AiFeature, string>>(
+    () => Object.fromEntries(AI_FEATURES.map((f) => [f, ""])) as Record<AiFeature, string>
   );
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -414,21 +424,21 @@ function PromptsTab() {
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    getAiPromptOverrides().then((overrides) => {
-      setDrafts({
-        ...DEFAULT_PROMPTS,
-        ...(overrides as Record<AiFeature, string>),
-      });
-      setOverridden(
-        Object.fromEntries(AI_FEATURES.map((f) => [f, overrides[f] != null])) as Record<AiFeature, boolean>
-      );
+    getAiCustomInstructions().then((custom) => {
+      const next = Object.fromEntries(
+        AI_FEATURES.map((f) => [f, custom[f] ?? ""])
+      ) as Record<AiFeature, string>;
+      setDrafts(next);
+      setSaved({ ...next });
       setLoaded(true);
     });
   }, []);
 
   const meta = FEATURE_META[feature];
   const draft = drafts[feature];
-  const isDefault = draft.trim() === DEFAULT_PROMPTS[feature].trim();
+  const hasCustom = saved[feature].trim().length > 0;
+  const dirty = draft.trim() !== saved[feature].trim();
+  const overLimit = draft.length > MAX_CUSTOM_INSTRUCTIONS;
 
   function selectFeature(next: AiFeature) {
     setFeature(next);
@@ -440,37 +450,40 @@ function PromptsTab() {
     setBusy(true);
     setError("");
     setNotice("");
-    const message = await setAiPrompt(feature, draft);
+    const message = await setAiCustomInstructions(feature, draft);
     setBusy(false);
     if (message) {
       setError(message);
       return;
     }
-    setOverridden((prev) => ({ ...prev, [feature]: true }));
-    setNotice("Prompt saved.");
+    // Store what we sent (trimmed) so the UI reflects the effective value.
+    setSaved((prev) => ({ ...prev, [feature]: draft.trim() }));
+    setDrafts((prev) => ({ ...prev, [feature]: draft.trim() }));
+    setNotice("Custom instructions saved.");
   }
 
-  async function reset() {
+  async function clear() {
     setBusy(true);
     setError("");
     setNotice("");
-    const message = await resetAiPrompt(feature);
+    const message = await clearAiCustomInstructions(feature);
     setBusy(false);
     if (message) {
       setError(message);
       return;
     }
-    setDrafts((prev) => ({ ...prev, [feature]: DEFAULT_PROMPTS[feature] }));
-    setOverridden((prev) => ({ ...prev, [feature]: false }));
-    setNotice("Restored the default prompt.");
+    setSaved((prev) => ({ ...prev, [feature]: "" }));
+    setDrafts((prev) => ({ ...prev, [feature]: "" }));
+    setNotice("Custom instructions cleared — using the built-in behaviour.");
   }
 
   return (
-    <div className="card" style={{ maxWidth: 980 }}>
-      <h3>Prompt editor</h3>
+    <div className="card" style={{ maxWidth: 820 }}>
+      <h3>Customise the AI</h3>
       <p className="page-sub">
-        Edit the system prompt behind each AI feature. Keep the <code>{"{{PLACEHOLDERS}}"}</code> —
-        the app fills them with live menu, cart and sales data at request time.
+        Add your own instructions to fine-tune each feature — tone, wording, what to emphasise. These
+        are layered on top of the built-in behaviour. They <strong>can’t</strong> change what data the
+        AI uses, invent menu items or prices, or override the safety rules, so they’re safe to edit.
       </p>
 
       <div className="prompt-feature-tabs">
@@ -481,51 +494,74 @@ function PromptsTab() {
             onClick={() => selectFeature(f)}
           >
             {FEATURE_META[f].label}
-            {overridden[f] && <span className="chip-dot" title="Customised" aria-hidden="true" />}
+            {saved[f].trim().length > 0 && (
+              <span className="chip-dot" title="Customised" aria-hidden="true" />
+            )}
           </button>
         ))}
       </div>
 
-      <p className="page-sub" style={{ margin: "14px 0 6px" }}>
-        {meta.blurb}{" "}
-        <span className={isDefault ? "prompt-status-default" : "prompt-status-custom"}>
-          {isDefault ? "Using the default prompt." : "Customised."}
+      <p className="page-sub" style={{ margin: "14px 0 4px" }}>
+        <strong>{meta.label}</strong>{" "}
+        <span className={hasCustom ? "prompt-status-custom" : "prompt-status-default"}>
+          {hasCustom ? "Customised." : "Using the built-in behaviour."}
         </span>
       </p>
-      <p className="page-sub" style={{ margin: "0 0 6px", fontSize: 12.5 }}>
-        Required placeholders:{" "}
-        {meta.placeholders.map((p) => (
-          <code key={p} className="model-slug" style={{ marginRight: 6 }}>
-            {p}
-          </code>
-        ))}
+      <p className="page-sub" style={{ margin: "0 0 12px" }}>
+        {meta.summary}
       </p>
 
+      <label className="page-sub" style={{ display: "block", marginBottom: 6, fontWeight: 600 }}>
+        Custom instructions (optional)
+      </label>
       <textarea
         value={draft}
         disabled={!loaded || busy}
-        spellCheck={false}
+        maxLength={MAX_CUSTOM_INSTRUCTIONS + 200}
+        placeholder={`e.g. ${meta.examples[0]}`}
         onChange={(e) => {
           setDrafts((prev) => ({ ...prev, [feature]: e.target.value }));
           setNotice("");
           setError("");
         }}
-        style={{ minHeight: 520, fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 13 }}
+        style={{ minHeight: 150 }}
       />
+      <p
+        className="page-sub"
+        style={{ margin: "4px 0 0", fontSize: 12.5, color: overLimit ? "var(--danger, #c0392b)" : undefined }}
+      >
+        {draft.length} / {MAX_CUSTOM_INSTRUCTIONS} characters
+        {overLimit && " — too long, please shorten"}
+      </p>
+
+      <div className="settings-section" style={{ marginTop: 14 }}>
+        <p className="page-sub" style={{ margin: "0 0 6px", fontSize: 12.5, fontWeight: 600 }}>
+          Ideas
+        </p>
+        <ul className="page-sub" style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>
+          {meta.examples.map((ex) => (
+            <li key={ex}>{ex}</li>
+          ))}
+        </ul>
+      </div>
 
       {error && <p className="error-text">{error}</p>}
       {notice && <p className="banner banner-ok" style={{ marginTop: 12 }}>{notice}</p>}
 
       <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
-        <button className="btn" onClick={save} disabled={!loaded || busy || isDefault}>
-          {busy ? "Saving…" : "Save prompt"}
+        <button
+          className="btn"
+          onClick={save}
+          disabled={!loaded || busy || !dirty || overLimit || !draft.trim()}
+        >
+          {busy ? "Saving…" : "Save instructions"}
         </button>
         <button
           className="btn btn-secondary"
-          onClick={reset}
-          disabled={!loaded || busy || (isDefault && !overridden[feature])}
+          onClick={clear}
+          disabled={!loaded || busy || (!hasCustom && !draft.trim())}
         >
-          Reset to default
+          Clear
         </button>
       </div>
     </div>

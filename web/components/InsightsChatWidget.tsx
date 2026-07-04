@@ -4,32 +4,62 @@
 // available from any admin screen (dashboard, menu management, settings) as
 // a pizza-slice bubble in the corner. It fetches and aggregates orders
 // itself on first open, so it doesn't depend on which page it's mounted on.
+//
+// The dashboard's "Today's digest" button also drives this widget (via
+// lib/insightsChatBus): it opens the popup and generates the end-of-day report
+// as a chat answer, so the digest lives in the conversation rather than its own
+// box. That's why the free-form "ask" UI is gated on `insightsEnabled` while
+// the digest works whenever `digestEnabled` — the two AI features toggle
+// independently in admin settings.
 
-import { useEffect, useRef, useState } from "react";
-import { computeAggregates, type OrderAggregates } from "@/lib/analytics";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { computeAggregates, todaysOrders } from "@/lib/analytics";
 import { getOrders } from "@/lib/data";
+import { onDigestRequested } from "@/lib/insightsChatBus";
+import type { CompletedOrder } from "@/lib/types";
 
 type ChatEntry = { role: "q" | "a"; text: string };
 
-export default function InsightsChatWidget() {
+export default function InsightsChatWidget({
+  insightsEnabled = true,
+  digestEnabled = true,
+}: {
+  insightsEnabled?: boolean;
+  digestEnabled?: boolean;
+}) {
   const [open, setOpen] = useState(false);
-  const [aggregates, setAggregates] = useState<OrderAggregates | null>(null);
+  const [orders, setOrders] = useState<CompletedOrder[] | null>(null);
   const [loadError, setLoadError] = useState("");
   const [question, setQuestion] = useState("");
   const [log, setLog] = useState<ChatEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
+  // A ref mirror of `orders` so async actions (the digest, triggered while the
+  // popup may still be closed) read the latest value without a stale closure.
+  const ordersRef = useRef<CompletedOrder[] | null>(null);
+
+  // All-time aggregates power the free-form copilot; the digest computes its
+  // own today-only slice on demand (see runDigest).
+  const aggregates = useMemo(() => (orders ? computeAggregates(orders) : null), [orders]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [log, busy]);
 
+  /** Load orders once (from either an open or a digest request) and cache them. */
+  const ensureOrders = useCallback(async (): Promise<CompletedOrder[]> => {
+    if (ordersRef.current) return ordersRef.current;
+    const loaded = await getOrders();
+    ordersRef.current = loaded;
+    setOrders(loaded);
+    return loaded;
+  }, []);
+
+  // Warm the data as soon as the copilot is opened, so the first question is snappy.
   useEffect(() => {
-    if (!open || aggregates || loadError) return;
-    getOrders()
-      .then((orders) => setAggregates(computeAggregates(orders)))
-      .catch((error: Error) => setLoadError(error.message));
-  }, [open, aggregates, loadError]);
+    if (!open || ordersRef.current || loadError) return;
+    ensureOrders().catch((error: Error) => setLoadError(error.message));
+  }, [open, loadError, ensureOrders]);
 
   async function ask(text?: string) {
     const q = (text ?? question).trim();
@@ -55,15 +85,52 @@ export default function InsightsChatWidget() {
     }
   }
 
+  // Open the popup and write today's digest into the chat as an answer bubble.
+  const runDigest = useCallback(async () => {
+    setOpen(true);
+    setBusy(true);
+    setLog((prev) => [...prev, { role: "q", text: "Write today's report" }]);
+    try {
+      const loaded = await ensureOrders();
+      const todayAggregates = computeAggregates(todaysOrders(loaded));
+      const response = await fetch("/api/ai/digest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aggregates: todayAggregates }),
+      });
+      const payload = await response.json();
+      setLog((prev) => [
+        ...prev,
+        { role: "a", text: response.ok ? payload.digest : payload.error ?? "Unavailable right now." },
+      ]);
+    } catch {
+      setLog((prev) => [...prev, { role: "a", text: "The digest writer is unavailable right now." }]);
+    } finally {
+      setBusy(false);
+    }
+  }, [ensureOrders]);
+
+  // Subscribe to the dashboard's "Today's digest" button.
+  useEffect(() => {
+    if (!digestEnabled) return;
+    return onDigestRequested(() => {
+      void runDigest();
+    });
+  }, [digestEnabled, runDigest]);
+
+  if (!insightsEnabled && !digestEnabled) return null;
+
   return (
     <>
-      <button
-        className="chat-fab"
-        aria-label={open ? "Close business copilot" : "Ask your business anything"}
-        onClick={() => setOpen((v) => !v)}
-      >
-        {open ? "✕" : "🍕"}
-      </button>
+      {insightsEnabled && (
+        <button
+          className="chat-fab"
+          aria-label={open ? "Close business copilot" : "Ask your business anything"}
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open ? "✕" : "🍕"}
+        </button>
+      )}
 
       {open && (
         <div className="chat-popup" role="dialog" aria-label="Business copilot">
@@ -79,7 +146,13 @@ export default function InsightsChatWidget() {
             </div>
             <div className="chat-popup-actions">
               {log.length > 0 && (
-                <button className="chat-close" aria-label="Clear chat" title="Clear chat" onClick={() => setLog([])}>
+                <button
+                  className="chat-close"
+                  aria-label="Clear chat"
+                  title="Clear chat"
+                  disabled={busy}
+                  onClick={() => setLog([])}
+                >
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                     <path
                       d="M2.5 4h11M6 4V2.5A.5.5 0 0 1 6.5 2h3a.5.5 0 0 1 .5.5V4m1.5 0-.6 9a1 1 0 0 1-1 .9H5.6a1 1 0 0 1-1-.9L4 4"
@@ -101,40 +174,40 @@ export default function InsightsChatWidget() {
 
           <div className="chat-body">
             {loadError && <div className="banner banner-error">Could not load orders: {loadError}</div>}
-            {!loadError && !aggregates && <p className="page-sub">Loading your sales data…</p>}
-
-            {aggregates && (
-              <div className="chat-log">
-                {log.length === 0 && (
-                  <div className="chat-empty">
-                    <p>Hi Rajan! Ask me anything about your sales. Try one of these:</p>
-                    <div className="chat-suggest-row">
-                      {["Which pizza sells most?", "What did discounts cost me?", "Which table orders the most?"].map(
-                        (s) => (
-                          <button key={s} className="chat-suggest" onClick={() => ask(s)}>
-                            {s}
-                          </button>
-                        )
-                      )}
-                    </div>
-                  </div>
-                )}
-                {log.map((entry, index) => (
-                  <div key={index} className={`chat-msg ${entry.role === "q" ? "chat-q" : "chat-a"}`}>
-                    {entry.text}
-                  </div>
-                ))}
-                {busy && (
-                  <div className="chat-msg chat-a chat-typing" aria-label="Thinking">
-                    <span /><span /><span />
-                  </div>
-                )}
-                <div ref={logEndRef} />
-              </div>
+            {!loadError && insightsEnabled && !aggregates && log.length === 0 && (
+              <p className="page-sub">Loading your sales data…</p>
             )}
+
+            <div className="chat-log">
+              {log.length === 0 && insightsEnabled && aggregates && (
+                <div className="chat-empty">
+                  <p>Hi Rajan! Ask me anything about your sales. Try one of these:</p>
+                  <div className="chat-suggest-row">
+                    {["Which pizza sells most?", "What did discounts cost me?", "Which table orders the most?"].map(
+                      (s) => (
+                        <button key={s} className="chat-suggest" onClick={() => ask(s)}>
+                          {s}
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
+              {log.map((entry, index) => (
+                <div key={index} className={`chat-msg ${entry.role === "q" ? "chat-q" : "chat-a"}`}>
+                  {entry.text}
+                </div>
+              ))}
+              {busy && (
+                <div className="chat-msg chat-a chat-typing" aria-label="Thinking">
+                  <span /><span /><span />
+                </div>
+              )}
+              <div ref={logEndRef} />
+            </div>
           </div>
 
-          {aggregates && (
+          {insightsEnabled && (
             <div className="chat-input-bar">
               <input
                 type="text"
@@ -142,13 +215,13 @@ export default function InsightsChatWidget() {
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && ask()}
-                disabled={busy}
+                disabled={busy || !aggregates}
               />
               <button
                 className="chat-send"
                 aria-label="Send"
                 onClick={() => ask()}
-                disabled={busy || !question.trim()}
+                disabled={busy || !aggregates || !question.trim()}
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                   <path d="M1.7 1.3a.75.75 0 0 1 .8-.1l12 6a.75.75 0 0 1 0 1.4l-12 6a.75.75 0 0 1-1-.9L3.2 8 1.5 2.2a.75.75 0 0 1 .2-.9zM4.6 8.75l-1.1 3.8L12 8 3.5 3.45l1.1 3.8h4.15a.75.75 0 0 1 0 1.5H4.6z" />
