@@ -88,7 +88,7 @@ export function AdminDailyChart({ data }: { data: DailyPoint[] }) {
 
       {!hasData ? (
         <p className="page-sub" style={{ margin: 0 }}>
-          No orders in the last 14 days yet.
+          No orders in the selected range yet.
         </p>
       ) : (
         <div className="daily-chart-wrap">

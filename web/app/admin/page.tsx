@@ -12,7 +12,8 @@ import { PAYMENT_MODES, type CompletedOrder, type PaymentMode } from "@/lib/type
 import { AdminDailyChart, type DailyPoint } from "@/components/AdminDailyChart";
 
 const PAGE_SIZE = 10;
-const CHART_DAYS = 14;
+const CHART_DAYS = 14; // trailing window shown when the range is open-ended
+const CHART_MAX_DAYS = 92; // guard so a huge custom range can't render 1000 bars
 
 type StatPeriod = "today" | "7d" | "30d" | "all" | "custom";
 
@@ -24,21 +25,39 @@ const PERIOD_LABELS: Record<StatPeriod, string> = {
   custom: "Custom range",
 };
 
+// Local yyyy-mm-dd for a date. The <input type="date"> fields, the table's
+// "When" column (formatDateTime) and todaysOrders() all work in the browser's
+// local timezone, so the range filter must too — slicing the UTC ISO string
+// instead makes orders near midnight fall on the wrong calendar day.
+function localDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// Parse a "yyyy-mm-dd" key back into a local-midnight Date. `new Date(str)`
+// would read it as UTC and shift a day west of Greenwich — do it by parts.
+function parseDateKey(key: string): Date {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
 // yyyy-mm-dd bounds for a preset period, in local time — used to drive both the
 // stat cards and the orders table's own date filter from the one dropdown.
 function presetRange(period: Exclude<StatPeriod, "custom">): { from: string; to: string } {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey(new Date());
   if (period === "all") return { from: "", to: "" };
   if (period === "today") return { from: today, to: today };
   const days = period === "7d" ? 7 : 30;
   const from = new Date();
   from.setDate(from.getDate() - (days - 1));
-  return { from: from.toISOString().slice(0, 10), to: today };
+  return { from: localDateKey(from), to: today };
 }
 
 function ordersInRange(orders: CompletedOrder[], from: string, to: string): CompletedOrder[] {
   return orders.filter((o) => {
-    const date = o.createdAt.slice(0, 10);
+    const date = localDateKey(new Date(o.createdAt));
     if (from && date < from) return false;
     if (to && date > to) return false;
     return true;
@@ -93,35 +112,49 @@ export default function AdminPage() {
     [orders, dateFrom, dateTo],
   );
 
+  // The chart spans the same date range as the stats and table. When the range
+  // is open-ended ("All time" / no "from"), it falls back to a trailing
+  // CHART_DAYS window ending at "to" so it stays readable rather than plotting
+  // the entire history.
   const dailySeries = useMemo<DailyPoint[]>(() => {
     if (!orders) return [];
     const byDate = new Map<string, { pizzas: number; revenue: number; discount: number }>();
     for (const order of orders) {
-      const date = order.createdAt.slice(0, 10);
+      const date = localDateKey(new Date(order.createdAt));
       const entry = byDate.get(date) ?? { pizzas: 0, revenue: 0, discount: 0 };
       entry.pizzas += order.lines.reduce((sum, line) => sum + line.quantity, 0);
       entry.revenue += paiseToRupees(order.totalPaise);
       entry.discount += paiseToRupees(order.discountPaise);
       byDate.set(date, entry);
     }
+
+    const toDate = dateTo ? parseDateKey(dateTo) : new Date();
+    let fromDate: Date;
+    if (dateFrom) {
+      fromDate = parseDateKey(dateFrom);
+    } else {
+      fromDate = new Date(toDate);
+      fromDate.setDate(fromDate.getDate() - (CHART_DAYS - 1));
+    }
+    const floor = new Date(toDate);
+    floor.setDate(floor.getDate() - (CHART_MAX_DAYS - 1));
+    if (fromDate < floor) fromDate = floor;
+
     const series: DailyPoint[] = [];
-    const cursor = new Date();
-    for (let i = CHART_DAYS - 1; i >= 0; i--) {
-      const d = new Date(cursor);
-      d.setDate(d.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
+    for (const d = new Date(fromDate); d <= toDate; d.setDate(d.getDate() + 1)) {
+      const key = localDateKey(d);
       const entry = byDate.get(key) ?? { pizzas: 0, revenue: 0, discount: 0 };
       series.push({ date: key, ...entry });
     }
     return series;
-  }, [orders]);
+  }, [orders, dateFrom, dateTo]);
 
   const filteredOrders = useMemo(() => {
     if (!orders) return [];
     const q = search.trim().toLowerCase();
     return orders.filter((order) => {
       if (paymentFilter !== "All" && order.paymentMode !== paymentFilter) return false;
-      const orderDate = order.createdAt.slice(0, 10);
+      const orderDate = localDateKey(new Date(order.createdAt));
       if (dateFrom && orderDate < dateFrom) return false;
       if (dateTo && orderDate > dateTo) return false;
       if (!q) return true;
