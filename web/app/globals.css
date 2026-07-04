@@ -248,6 +248,8 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 .admin-main-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .admin-main-col .daily-chart-card { margin-bottom: 0; }
 @media (max-width: 900px) { .admin-grid { grid-template-columns: 1fr; } }
+.stat-row-head { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.stat-row-head .select { width: auto; min-width: 140px; }
 .stat-row {
   display: grid; gap: 12px; margin-bottom: 16px;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -258,6 +260,9 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 }
 .stat .stat-label { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }
 .stat .stat-value { font-size: 20px; font-weight: 800; }
+.stat.stat-highlight { background: var(--amber-soft); border-color: var(--amber); }
+.stat.stat-highlight .stat-value { color: var(--amber); }
+.stat .stat-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
 
 .orders-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .orders-table th {

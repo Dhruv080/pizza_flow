@@ -14,6 +14,25 @@ import { AdminDailyChart, type DailyPoint } from "@/components/AdminDailyChart";
 const PAGE_SIZE = 10;
 const CHART_DAYS = 14;
 
+type StatPeriod = "today" | "7d" | "30d" | "all";
+
+const PERIOD_LABELS: Record<StatPeriod, string> = {
+  today: "Today",
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  all: "All time",
+};
+
+function ordersInPeriod(orders: CompletedOrder[], period: StatPeriod): CompletedOrder[] {
+  if (period === "all") return orders;
+  if (period === "today") return todaysOrders(orders);
+  const days = period === "7d" ? 7 : 30;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - (days - 1));
+  cutoff.setHours(0, 0, 0, 0);
+  return orders.filter((o) => new Date(o.createdAt) >= cutoff);
+}
+
 export default function AdminPage() {
   const [orders, setOrders] = useState<CompletedOrder[] | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -23,6 +42,7 @@ export default function AdminPage() {
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(0);
   const [digestEnabled, setDigestEnabled] = useState(true);
+  const [statPeriod, setStatPeriod] = useState<StatPeriod>("today");
 
   useEffect(() => {
     getOrders()
@@ -37,8 +57,11 @@ export default function AdminPage() {
     setPage(0);
   }, [search, paymentFilter, dateFrom, dateTo]);
 
-  const aggregates = useMemo(() => (orders ? computeAggregates(orders) : null), [orders]);
   const today = useMemo(() => (orders ? computeAggregates(todaysOrders(orders)) : null), [orders]);
+  const periodStats = useMemo(
+    () => (orders ? computeAggregates(ordersInPeriod(orders, statPeriod)) : null),
+    [orders, statPeriod],
+  );
 
   const dailySeries = useMemo<DailyPoint[]>(() => {
     if (!orders) return [];
@@ -88,7 +111,7 @@ export default function AdminPage() {
   const pagedOrders = filteredOrders.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
 
   if (loadError) return <div className="banner banner-error">Could not load orders: {loadError}</div>;
-  if (!orders || !aggregates || !today) return <p className="page-sub">Loading orders…</p>;
+  if (!orders || !today || !periodStats) return <p className="page-sub">Loading orders…</p>;
 
   return (
     <>
@@ -101,26 +124,41 @@ export default function AdminPage() {
         </div>
       )}
 
+      <div className="stat-row-head">
+        <select
+          className="select"
+          value={statPeriod}
+          onChange={(e) => setStatPeriod(e.target.value as StatPeriod)}
+        >
+          {(Object.keys(PERIOD_LABELS) as StatPeriod[]).map((p) => (
+            <option key={p} value={p}>
+              {PERIOD_LABELS[p]}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="stat-row">
         <div className="stat">
-          <div className="stat-label">Orders (all time)</div>
-          <div className="stat-value">{aggregates.orderCount}</div>
+          <div className="stat-label">Orders</div>
+          <div className="stat-value">{periodStats.orderCount}</div>
         </div>
         <div className="stat">
-          <div className="stat-label">Revenue (all time)</div>
-          <div className="stat-value">{formatPaise(Math.round(aggregates.totalRevenue * 100))}</div>
+          <div className="stat-label">Revenue</div>
+          <div className="stat-value">{formatPaise(Math.round(periodStats.totalRevenue * 100))}</div>
         </div>
         <div className="stat">
-          <div className="stat-label">Orders today</div>
-          <div className="stat-value">{today.orderCount}</div>
+          <div className="stat-label">Avg order value</div>
+          <div className="stat-value">{formatPaise(Math.round(periodStats.averageOrderValue * 100))}</div>
         </div>
-        <div className="stat">
-          <div className="stat-label">Revenue today</div>
-          <div className="stat-value">{formatPaise(Math.round(today.totalRevenue * 100))}</div>
-        </div>
-        <div className="stat">
+        <div className="stat stat-highlight">
           <div className="stat-label">Discounts given</div>
-          <div className="stat-value">{formatPaise(Math.round(aggregates.totalDiscountGiven * 100))}</div>
+          <div className="stat-value">{formatPaise(Math.round(periodStats.totalDiscountGiven * 100))}</div>
+          <div className="stat-sub">
+            {periodStats.totalRevenue > 0
+              ? `${((periodStats.totalDiscountGiven / periodStats.totalRevenue) * 100).toFixed(1)}% of revenue`
+              : "—"}
+          </div>
         </div>
       </div>
 
@@ -178,7 +216,10 @@ export default function AdminPage() {
                   <th>When</th>
                   <th>Table</th>
                   <th>Customer</th>
-                  <th>Items</th>
+                  <th>Units</th>
+                  <th>Items ordered</th>
+                  <th>GST</th>
+                  <th>Discount</th>
                   <th>Total</th>
                   <th>Payment</th>
                 </tr>
@@ -186,7 +227,7 @@ export default function AdminPage() {
               <tbody>
                 {filteredOrders.length === 0 && (
                   <tr>
-                    <td colSpan={6} style={{ color: "var(--muted)" }}>
+                    <td colSpan={9} style={{ color: "var(--muted)" }}>
                       {orders.length === 0 ? "No orders yet." : "No orders match your filters."}
                     </td>
                   </tr>
@@ -199,6 +240,7 @@ export default function AdminPage() {
                       {order.customerName}
                       <small>{order.phone}</small>
                     </td>
+                    <td>{order.lines.reduce((sum, line) => sum + line.quantity, 0)}</td>
                     <td>
                       {order.lines.map((line, i) => (
                         <div key={i}>
@@ -210,10 +252,10 @@ export default function AdminPage() {
                         </div>
                       ))}
                     </td>
+                    <td>{formatPaise(order.gstPaise)}</td>
+                    <td>{order.discountPaise > 0 ? formatPaise(order.discountPaise) : "—"}</td>
                     <td>
                       <strong>{formatPaise(order.totalPaise)}</strong>
-                      {order.discountPaise > 0 && <small>disc -{formatPaise(order.discountPaise)}</small>}
-                      <small>GST {formatPaise(order.gstPaise)}</small>
                     </td>
                     <td>{order.paymentMode}</td>
                   </tr>
