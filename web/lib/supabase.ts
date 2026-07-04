@@ -18,3 +18,25 @@ export function getSupabase(): SupabaseClient {
   if (!client) client = createClient(url!, anonKey!);
   return client;
 }
+
+// ------------------------------------------------------------- admin client
+// A service-role client that BYPASSES row-level security. SUPABASE_SERVICE_ROLE_KEY
+// is a server-only env var (never NEXT_PUBLIC_*), so this is undefined in the
+// browser and must only be used inside server code (API routes). It exists so
+// the customer-facing AI routes can read the admin's OpenRouter API key, which
+// is stored in a `secret_`-prefixed settings row that anon clients cannot read.
+
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+let adminClient: SupabaseClient | null = null;
+
+/** Returns the service-role client, or null if it isn't configured. */
+export function getSupabaseAdmin(): SupabaseClient | null {
+  if (!url || !serviceRoleKey) return null;
+  if (!adminClient) {
+    adminClient = createClient(url, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return adminClient;
+}

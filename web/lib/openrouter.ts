@@ -19,10 +19,13 @@ export async function chatCompletion(params: {
   // The admin-selected model (settings.ai_model), resolved by the caller.
   // Falls back to OPENROUTER_MODEL then DEFAULT_MODEL if not provided.
   model?: string;
+  // The resolved OpenRouter key (admin-set in the UI, or OPENROUTER_API_KEY),
+  // supplied by the caller. Falls back to the env var if not provided.
+  apiKey?: string;
 }): Promise<string> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  const apiKey = params.apiKey || process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    throw new AiUnavailableError("OPENROUTER_API_KEY is not set");
+    throw new AiUnavailableError("No OpenRouter API key is configured");
   }
 
   const response = await fetch(OPENROUTER_URL, {

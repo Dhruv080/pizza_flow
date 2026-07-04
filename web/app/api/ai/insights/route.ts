@@ -4,7 +4,7 @@
 // the LLM only narrates them. It never touches the database.
 
 import { NextResponse } from "next/server";
-import { getAiModel, getAiPrompt, isAiFeatureEnabled } from "@/lib/data";
+import { getAiModel, getAiPrompt, getOpenRouterApiKey, isAiFeatureEnabled } from "@/lib/data";
 import { AiUnavailableError, chatCompletion } from "@/lib/openrouter";
 import type { OrderAggregates } from "@/lib/analytics";
 
@@ -30,7 +30,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const [prompt, model] = await Promise.all([getAiPrompt("insights"), getAiModel()]);
+    const [prompt, model, apiKey] = await Promise.all([
+      getAiPrompt("insights"),
+      getAiModel(),
+      getOpenRouterApiKey(),
+    ]);
     const answer = await chatCompletion({
       system: prompt
         .replace("{{GENERATED_AT}}", aggregates.generatedAt)
@@ -38,6 +42,7 @@ export async function POST(request: Request) {
       user: question,
       maxTokens: 400,
       model,
+      apiKey: apiKey ?? undefined,
     });
     return NextResponse.json({ answer });
   } catch (error) {

@@ -86,11 +86,14 @@ alter table order_items enable row level security;
 alter table order_item_toppings enable row level security;
 alter table settings enable row level security;
 
--- Settings: everyone can read (the ordering page shows the outlet name);
--- only the signed-in admin can change them.
+-- Settings: everyone can read the public settings (the ordering page shows the
+-- outlet name), EXCEPT `secret_`-prefixed rows (e.g. the OpenRouter API key),
+-- which are hidden from anon clients and never returned by the public REST API.
+-- The signed-in admin (authenticated) can read and change everything; the
+-- server's service-role client bypasses RLS to read secrets in the AI routes.
 drop policy if exists "settings readable by all" on settings;
 create policy "settings readable by all" on settings
-  for select using (true);
+  for select using (key not like 'secret\_%');
 drop policy if exists "settings editable by admin" on settings;
 create policy "settings editable by admin" on settings
   for all to authenticated using (true) with check (true);

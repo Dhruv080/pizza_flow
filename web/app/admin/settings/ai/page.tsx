@@ -22,6 +22,9 @@ import {
   getAiPromptOverrides,
   setAiPrompt,
   resetAiPrompt,
+  getStoredOpenRouterKeyMasked,
+  setOpenRouterKey,
+  clearOpenRouterKey,
   isDemoMode,
 } from "@/lib/data";
 import { AI_FEATURES, DEFAULT_PROMPTS, FEATURE_META, type AiFeature } from "@/lib/prompts";
@@ -213,12 +216,22 @@ function ModelTab() {
   }
 
   return (
-    <div className="card" style={{ maxWidth: 560 }}>
-      <h3>Model selection</h3>
-      <p className="page-sub">
-        Every AI feature uses this OpenRouter model. Currently active:{" "}
-        <strong>{loaded ? active : "…"}</strong>
-      </p>
+    <div className="card" style={{ maxWidth: 860 }}>
+      <h3>Model provider</h3>
+      <p className="page-sub">Where the models are served from. More providers can be added later.</p>
+      <select className="select" value="openrouter" disabled style={{ maxWidth: 300 }}>
+        <option value="openrouter">OpenRouter</option>
+      </select>
+
+      <ApiKeySection />
+
+      <div className="settings-section">
+        <h3>Model selection</h3>
+        <p className="page-sub">
+          Every AI feature uses this OpenRouter model. Currently active:{" "}
+          <strong>{loaded ? active : "…"}</strong>
+        </p>
+      </div>
 
       <div className="model-list">
         {AI_MODEL_OPTIONS.map((option) => (
@@ -242,7 +255,7 @@ function ModelTab() {
           </label>
         ))}
 
-        <label className={`model-option ${selected === CUSTOM ? "selected" : ""}`}>
+        <label className={`model-option model-custom ${selected === CUSTOM ? "selected" : ""}`}>
           <input
             type="radio"
             name="ai-model"
@@ -283,6 +296,106 @@ function ModelTab() {
       >
         {busy ? "Saving…" : "Save model"}
       </button>
+    </div>
+  );
+}
+
+function ApiKeySection() {
+  const [stored, setStored] = useState<string | null>(null); // masked, or null
+  const [value, setValue] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    getStoredOpenRouterKeyMasked().then((masked) => {
+      setStored(masked);
+      setLoaded(true);
+    });
+  }, []);
+
+  async function save() {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    const message = await setOpenRouterKey(value);
+    setBusy(false);
+    if (message) {
+      setError(message);
+      return;
+    }
+    setStored(await getStoredOpenRouterKeyMasked());
+    setValue("");
+    setNotice("API key saved.");
+  }
+
+  async function clear() {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    const message = await clearOpenRouterKey();
+    setBusy(false);
+    if (message) {
+      setError(message);
+      return;
+    }
+    setStored(null);
+    setValue("");
+    setNotice("API key removed — falling back to the server environment key.");
+  }
+
+  return (
+    <div className="settings-section">
+      <h3>API key</h3>
+      <p className="page-sub">
+        Your OpenRouter API key (from{" "}
+        <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">
+          openrouter.ai/keys
+        </a>
+        ). Stored server-side and never shown in full again. Leave it unset to use the key from the
+        server environment instead.
+      </p>
+
+      <p className="page-sub" style={{ marginBottom: 8 }}>
+        {!loaded
+          ? "Checking…"
+          : stored
+            ? `A key is saved: ${stored}`
+            : "No key saved — the app uses the server environment key (if configured)."}
+      </p>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <input
+          type="password"
+          placeholder="sk-or-v1-…"
+          value={value}
+          disabled={!loaded || busy}
+          autoComplete="off"
+          onChange={(e) => {
+            setValue(e.target.value);
+            setNotice("");
+            setError("");
+          }}
+          style={{ maxWidth: 360 }}
+        />
+        <button className="btn btn-small" onClick={save} disabled={!loaded || busy || !value.trim()}>
+          {busy ? "Saving…" : stored ? "Replace key" : "Save key"}
+        </button>
+        {stored && (
+          <button className="btn btn-small btn-secondary" onClick={clear} disabled={busy}>
+            Remove
+          </button>
+        )}
+      </div>
+
+      {error && <p className="error-text">{error}</p>}
+      {notice && <p className="banner banner-ok" style={{ marginTop: 10 }}>{notice}</p>}
+      {isDemoMode && (
+        <p className="page-sub" style={{ marginTop: 8 }}>
+          Demo mode: stored in this browser only; the server routes still use their environment key.
+        </p>
+      )}
     </div>
   );
 }
@@ -353,7 +466,7 @@ function PromptsTab() {
   }
 
   return (
-    <div className="card" style={{ maxWidth: 760 }}>
+    <div className="card" style={{ maxWidth: 980 }}>
       <h3>Prompt editor</h3>
       <p className="page-sub">
         Edit the system prompt behind each AI feature. Keep the <code>{"{{PLACEHOLDERS}}"}</code> —
@@ -397,7 +510,7 @@ function PromptsTab() {
           setNotice("");
           setError("");
         }}
-        style={{ minHeight: 300, fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 13 }}
+        style={{ minHeight: 520, fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 13 }}
       />
 
       {error && <p className="error-text">{error}</p>}

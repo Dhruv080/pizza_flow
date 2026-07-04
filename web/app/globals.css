@@ -414,16 +414,21 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 .tab-btn:hover { color: var(--ink); }
 .tab-btn.active { color: var(--brand); border-bottom-color: var(--brand); }
 
-/* per-feature sub-toggles under the master AI switch */
+/* per-feature sub-toggles, indented under the master AI switch to show they
+   are children of it */
 .ai-subtoggles {
-  margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line);
+  margin: 14px 0 0 10px; padding: 14px 0 2px 20px;
+  border-left: 2px solid var(--line);
   display: flex; flex-direction: column; gap: 14px;
 }
 .ai-subtoggle { display: flex; gap: 14px; align-items: flex-start; }
 .ai-subtoggle.disabled { opacity: 0.5; }
 
-/* model selection list */
-.model-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 4px; }
+/* model selection: two columns that reflow to one on narrow screens */
+.model-list {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 4px;
+}
+@media (max-width: 640px) { .model-list { grid-template-columns: 1fr; } }
 .model-option {
   display: flex; gap: 12px; align-items: flex-start;
   border: 1.5px solid var(--line); border-radius: 10px; padding: 12px 14px;
@@ -433,11 +438,16 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 .model-option.selected { border-color: var(--brand); background: var(--err-soft); }
 .model-option input[type="radio"] { margin-top: 4px; width: auto; flex-shrink: 0; cursor: pointer; }
 .model-option label { font-weight: 700; }
+/* the custom entry spans the full width so it stays prominent below the grid */
+.model-option.model-custom { grid-column: 1 / -1; }
 .model-slug {
   font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
   background: var(--amber-soft); color: var(--brand-dark);
   padding: 1px 6px; border-radius: 5px;
 }
+
+/* section divider inside a settings card (provider / api key / model) */
+.settings-section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
 
 /* prompt editor */
 .prompt-feature-tabs { display: flex; gap: 8px; flex-wrap: wrap; }

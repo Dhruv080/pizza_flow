@@ -3,7 +3,7 @@
 // Returns { toppingId, reason } or nulls. Ignoring the suggestion costs nothing.
 
 import { NextResponse } from "next/server";
-import { getAiModel, getAiPrompt, isAiFeatureEnabled } from "@/lib/data";
+import { getAiModel, getAiPrompt, getOpenRouterApiKey, isAiFeatureEnabled } from "@/lib/data";
 import { AiUnavailableError, chatCompletion, parseJsonReply } from "@/lib/openrouter";
 import type { MenuItem } from "@/lib/types";
 
@@ -41,13 +41,18 @@ export async function POST(request: Request) {
     .join("\n");
 
   try {
-    const [prompt, model] = await Promise.all([getAiPrompt("upsell"), getAiModel()]);
+    const [prompt, model, apiKey] = await Promise.all([
+      getAiPrompt("upsell"),
+      getAiModel(),
+      getOpenRouterApiKey(),
+    ]);
     const reply = await chatCompletion({
       system: prompt.replace("{{TOPPINGS}}", toppingsText).replace("{{CART}}", cartText),
       user: "Suggest one add-on for this cart.",
       jsonMode: true,
       maxTokens: 200,
       model,
+      apiKey: apiKey ?? undefined,
     });
     const suggestion = parseJsonReply<{ toppingId?: string | null; reason?: string }>(reply);
     const valid = toppings.find((t) => t.id === suggestion.toppingId);

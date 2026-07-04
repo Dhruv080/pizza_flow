@@ -8,7 +8,7 @@ import { DEFAULT_MODEL, isValidModelSlug } from "./aiCatalog";
 import { DEMO_MENU } from "./demoMenu";
 import { rupeesToPaise, paiseToRupees } from "./format";
 import { AI_FEATURES, DEFAULT_PROMPTS, FEATURE_META, type AiFeature } from "./prompts";
-import { getSupabase, isSupabaseConfigured } from "./supabase";
+import { getSupabase, getSupabaseAdmin, isSupabaseConfigured } from "./supabase";
 import { generateUUID } from "./uuid";
 import type { CartLine, CompletedOrder, Menu, MenuCategory, MenuItem, PaymentMode } from "./types";
 
@@ -618,6 +618,82 @@ export async function resetAiPrompt(feature: AiFeature): Promise<string | null> 
   }
   const { error } = await getSupabase().from("settings").delete().eq("key", promptKey(feature));
   return error ? error.message : null;
+}
+
+// ------------------------------------------------------- OpenRouter API key
+// The admin can set the OpenRouter API key from the UI instead of a Vercel env
+// var. It is stored in a `secret_`-prefixed settings row that RLS hides from
+// anon clients (see supabase/schema.sql), so it is NEVER returned by the public
+// REST API. The customer-facing AI routes read it server-side with the
+// service-role client, which bypasses RLS. If no key is stored (or the service
+// role isn't configured yet), everything falls back to OPENROUTER_API_KEY.
+
+const SECRET_OPENROUTER_KEY = "secret_openrouter_api_key";
+const DEMO_AI_KEY_KEY = "pizzaflow_demo_openrouter_key";
+
+/** Show only the last four characters — enough to confirm which key is saved. */
+function maskKey(key: string): string {
+  return key.length <= 4 ? "••••" : `••••••••${key.slice(-4)}`;
+}
+
+/** For the admin UI: the masked stored key, or null if none is saved. */
+export async function getStoredOpenRouterKeyMasked(): Promise<string | null> {
+  if (isDemoMode) {
+    if (typeof localStorage === "undefined") return null;
+    const key = localStorage.getItem(DEMO_AI_KEY_KEY);
+    return key ? maskKey(key) : null;
+  }
+  // The signed-in admin is authenticated, so RLS lets this read the secret row.
+  const { data } = await getSupabase()
+    .from("settings")
+    .select("value")
+    .eq("key", SECRET_OPENROUTER_KEY)
+    .maybeSingle();
+  return data?.value ? maskKey(data.value) : null;
+}
+
+export async function setOpenRouterKey(key: string): Promise<string | null> {
+  const trimmed = key.trim();
+  if (trimmed.length < 20) return "That does not look like a valid OpenRouter API key.";
+  if (trimmed.length > 200) return "The API key is too long.";
+  if (isDemoMode) {
+    if (typeof localStorage !== "undefined") localStorage.setItem(DEMO_AI_KEY_KEY, trimmed);
+    return null;
+  }
+  const { error } = await getSupabase()
+    .from("settings")
+    .upsert({ key: SECRET_OPENROUTER_KEY, value: trimmed });
+  return error ? error.message : null;
+}
+
+/** Remove the stored key so the routes fall back to OPENROUTER_API_KEY. */
+export async function clearOpenRouterKey(): Promise<string | null> {
+  if (isDemoMode) {
+    if (typeof localStorage !== "undefined") localStorage.removeItem(DEMO_AI_KEY_KEY);
+    return null;
+  }
+  const { error } = await getSupabase().from("settings").delete().eq("key", SECRET_OPENROUTER_KEY);
+  return error ? error.message : null;
+}
+
+/**
+ * Server-side only (AI routes): the OpenRouter key to use — the admin's stored
+ * key if present, otherwise OPENROUTER_API_KEY. Reading the secret row needs the
+ * service-role client (anon RLS hides it); without it we fall back to env.
+ */
+export async function getOpenRouterApiKey(): Promise<string | null> {
+  const envKey = process.env.OPENROUTER_API_KEY ?? null;
+  if (isDemoMode) return envKey;
+  const admin = getSupabaseAdmin();
+  if (admin) {
+    const { data } = await admin
+      .from("settings")
+      .select("value")
+      .eq("key", SECRET_OPENROUTER_KEY)
+      .maybeSingle();
+    if (data?.value) return data.value;
+  }
+  return envKey;
 }
 
 // ---------------------------------------------------------------- account

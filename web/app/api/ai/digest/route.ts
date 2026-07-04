@@ -4,7 +4,7 @@
 // every number in it comes from the aggregates.
 
 import { NextResponse } from "next/server";
-import { getAiModel, getAiPrompt, isAiFeatureEnabled } from "@/lib/data";
+import { getAiModel, getAiPrompt, getOpenRouterApiKey, isAiFeatureEnabled } from "@/lib/data";
 import { AiUnavailableError, chatCompletion } from "@/lib/openrouter";
 import type { OrderAggregates } from "@/lib/analytics";
 
@@ -28,12 +28,17 @@ export async function POST(request: Request) {
   }
 
   try {
-    const [prompt, model] = await Promise.all([getAiPrompt("digest"), getAiModel()]);
+    const [prompt, model, apiKey] = await Promise.all([
+      getAiPrompt("digest"),
+      getAiModel(),
+      getOpenRouterApiKey(),
+    ]);
     const digest = await chatCompletion({
       system: prompt.replace("{{AGGREGATES}}", JSON.stringify(body.aggregates, null, 1)),
       user: "Write today's end-of-day report.",
       maxTokens: 400,
       model,
+      apiKey: apiKey ?? undefined,
     });
     return NextResponse.json({ digest });
   } catch (error) {

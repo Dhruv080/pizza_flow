@@ -20,6 +20,7 @@ export const AI_MODEL_OPTIONS: AiModelOption[] = [
   { id: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet", note: "Strong reasoning and instruction-following." },
   { id: "anthropic/claude-3-haiku", label: "Claude 3 Haiku", note: "Very fast and cheap." },
   { id: "google/gemini-flash-1.5", label: "Gemini 1.5 Flash", note: "Fast, low cost." },
+  { id: "openai/gpt-oss-120b", label: "GPT-OSS 120B", note: "Open-weight OpenAI model." },
   { id: "meta-llama/llama-3.1-70b-instruct", label: "Llama 3.1 70B", note: "Open-weight alternative." },
 ];
 

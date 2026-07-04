@@ -5,7 +5,7 @@
 // rules dispose.
 
 import { NextResponse } from "next/server";
-import { getAiModel, getAiPrompt, isAiFeatureEnabled } from "@/lib/data";
+import { getAiModel, getAiPrompt, getOpenRouterApiKey, isAiFeatureEnabled } from "@/lib/data";
 import { AiUnavailableError, chatCompletion, parseJsonReply } from "@/lib/openrouter";
 import type { Menu } from "@/lib/types";
 
@@ -75,12 +75,17 @@ export async function POST(request: Request) {
     : "(empty)";
 
   try {
-    const [prompt, model] = await Promise.all([getAiPrompt("assistant"), getAiModel()]);
+    const [prompt, model, apiKey] = await Promise.all([
+      getAiPrompt("assistant"),
+      getAiModel(),
+      getOpenRouterApiKey(),
+    ]);
     const reply = await chatCompletion({
       system: prompt.replace("{{MENU}}", menuText).replace("{{CART}}", cartText),
       user: message,
       jsonMode: true,
       model,
+      apiKey: apiKey ?? undefined,
     });
     const draft = parseJsonReply<{ lines?: DraftLine[]; cartUpdates?: CartUpdate[]; note?: string }>(reply);
     return NextResponse.json({
