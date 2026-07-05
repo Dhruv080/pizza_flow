@@ -9,31 +9,31 @@ insert into settings (key, value) values
   ('outlet_location', 'New Ashok Nagar, Delhi')
 on conflict (key) do nothing;
 
-insert into menu_items (category, name, price) values
+insert into menu_items (category, name, price, is_veg) values
   -- bases (Types_of_Base.txt)
-  ('base', 'Thin Crust', 149),
-  ('base', 'Thick Crust', 179),
-  ('base', 'Cheese Burst', 229),
-  ('base', 'Whole Wheat', 159),
-  ('base', 'Multigrain', 169),
+  ('base', 'Thin Crust', 149, true),
+  ('base', 'Thick Crust', 179, true),
+  ('base', 'Cheese Burst', 229, true),
+  ('base', 'Whole Wheat', 159, true),
+  ('base', 'Multigrain', 169, true),
   -- pizzas (Types_of_Pizza.txt)
-  ('pizza', 'Margherita', 299),
-  ('pizza', 'Chicago Deep Dish', 349),
-  ('pizza', 'Greek Mediterranean', 329),
-  ('pizza', 'California Veggie', 339),
-  ('pizza', 'Farm House', 319),
-  ('pizza', 'Pepperoni Classic', 369),
-  ('pizza', 'BBQ Chicken', 379),
-  ('pizza', 'Paneer Tikka', 349),
+  ('pizza', 'Margherita', 299, true),
+  ('pizza', 'Chicago Deep Dish', 349, true),
+  ('pizza', 'Greek Mediterranean', 329, true),
+  ('pizza', 'California Veggie', 339, true),
+  ('pizza', 'Farm House', 319, true),
+  ('pizza', 'Pepperoni Classic', 369, false),
+  ('pizza', 'BBQ Chicken', 379, false),
+  ('pizza', 'Paneer Tikka', 349, true),
   -- toppings (Types_of_Toppings.txt)
-  ('topping', 'Black Olives', 49),
-  ('topping', 'Extra Cheese', 69),
-  ('topping', 'Button Mushrooms', 49),
-  ('topping', 'Green Peppers', 39),
-  ('topping', 'Jalapenos', 39),
-  ('topping', 'Sun-Dried Tomatoes', 59),
-  ('topping', 'Caramelised Onions', 49),
-  ('topping', 'Sweet Corn', 39),
-  ('topping', 'Roasted Garlic', 49),
-  ('topping', 'Peri-Peri Drizzle', 59)
-on conflict (category, name) do update set price = excluded.price, is_active = true;
+  ('topping', 'Black Olives', 49, true),
+  ('topping', 'Extra Cheese', 69, true),
+  ('topping', 'Button Mushrooms', 49, true),
+  ('topping', 'Green Peppers', 39, true),
+  ('topping', 'Jalapenos', 39, true),
+  ('topping', 'Sun-Dried Tomatoes', 59, true),
+  ('topping', 'Caramelised Onions', 49, true),
+  ('topping', 'Sweet Corn', 39, true),
+  ('topping', 'Roasted Garlic', 49, true),
+  ('topping', 'Peri-Peri Drizzle', 59, true)
+on conflict (category, name) do update set price = excluded.price, is_active = true, is_veg = excluded.is_veg;

@@ -230,6 +230,29 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 }
 .pay-mode.selected { border-color: var(--brand); background: var(--err-soft); }
 
+/* ---------- veg / non-veg ---------- */
+.veg-dot {
+  display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+  border: 1.5px solid var(--ok); flex: none;
+}
+.veg-dot.nonveg { border-color: var(--err); }
+.veg-dot::after {
+  content: ""; display: block; width: 5px; height: 5px; margin: 1px auto; border-radius: 999px;
+  background: var(--ok);
+}
+.veg-dot.nonveg::after { background: var(--err); }
+.veg-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; }
+.icard-veg-tag { position: absolute; top: 8px; right: 8px; }
+.icard { position: relative; }
+.veg-filter { display: flex; gap: 8px; margin-bottom: 12px; }
+.veg-filter-btn {
+  border: 1.5px solid var(--line); border-radius: 999px; background: #fff;
+  padding: 6px 14px; cursor: pointer; font-weight: 600; font-size: 13px;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.veg-filter-btn:hover { border-color: var(--amber); }
+.veg-filter-btn.selected { border-color: var(--brand); background: var(--err-soft); color: var(--brand-dark); }
+
 /* ---------- AI panels ---------- */
 .ai-panel { background: var(--amber-soft); border: 1px solid var(--amber); }
 .ai-panel h3 { display: flex; align-items: center; gap: 6px; }

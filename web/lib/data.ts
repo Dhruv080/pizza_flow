@@ -52,17 +52,24 @@ export async function getMenu(): Promise<Menu> {
 
   const { data, error } = await getSupabase()
     .from("menu_items")
-    .select("id, category, name, price")
+    .select("id, category, name, price, is_veg")
     .eq("is_active", true)
     .order("category")
     .order("name");
   if (error) throw dbError("Could not load the menu", error);
 
-  const toItem = (row: { id: string; category: string; name: string; price: number }): MenuItem => ({
+  const toItem = (row: {
+    id: string;
+    category: string;
+    name: string;
+    price: number;
+    is_veg: boolean;
+  }): MenuItem => ({
     id: row.id,
     category: row.category as MenuItem["category"],
     name: row.name,
     pricePaise: rupeesToPaise(row.price),
+    isVeg: row.is_veg,
   });
 
   const items = (data ?? []).map(toItem);
@@ -90,6 +97,7 @@ export interface AdminMenuItem {
   name: string;
   pricePaise: number;
   isActive: boolean;
+  isVeg: boolean;
 }
 
 const DEMO_MENU_ITEMS_KEY = "pizzaflow_demo_menu_items";
@@ -130,7 +138,7 @@ export async function getAllMenuItems(): Promise<AdminMenuItem[]> {
 
   const { data, error } = await getSupabase()
     .from("menu_items")
-    .select("id, category, name, price, is_active")
+    .select("id, category, name, price, is_active, is_veg")
     .order("category")
     .order("name");
   if (error) throw dbError("Could not load menu items", error);
@@ -140,6 +148,7 @@ export async function getAllMenuItems(): Promise<AdminMenuItem[]> {
     name: row.name,
     pricePaise: rupeesToPaise(row.price),
     isActive: row.is_active,
+    isVeg: row.is_veg,
   }));
 }
 
@@ -147,6 +156,7 @@ export async function createMenuItem(input: {
   category: MenuCategory;
   name: string;
   priceRupees: number;
+  isVeg: boolean;
 }): Promise<string | null> {
   const validationError = validateMenuItemInput(input.name, input.priceRupees);
   if (validationError) return validationError;
@@ -163,6 +173,7 @@ export async function createMenuItem(input: {
       name,
       pricePaise: rupeesToPaise(input.priceRupees),
       isActive: true,
+      isVeg: input.isVeg,
     });
     saveDemoMenuItems(items);
     return null;
@@ -170,7 +181,7 @@ export async function createMenuItem(input: {
 
   const { error } = await getSupabase()
     .from("menu_items")
-    .insert({ category: input.category, name, price: input.priceRupees });
+    .insert({ category: input.category, name, price: input.priceRupees, is_veg: input.isVeg });
   if (!error) return null;
   if (error.code === "23505") return "An item with this name already exists in this category.";
   return error.message;
@@ -178,7 +189,7 @@ export async function createMenuItem(input: {
 
 export async function updateMenuItem(
   id: string,
-  input: { name: string; priceRupees: number }
+  input: { name: string; priceRupees: number; isVeg: boolean }
 ): Promise<string | null> {
   const validationError = validateMenuItemInput(input.name, input.priceRupees);
   if (validationError) return validationError;
@@ -190,13 +201,14 @@ export async function updateMenuItem(
     if (!item) return "Item not found.";
     item.name = name;
     item.pricePaise = rupeesToPaise(input.priceRupees);
+    item.isVeg = input.isVeg;
     saveDemoMenuItems(items);
     return null;
   }
 
   const { error } = await getSupabase()
     .from("menu_items")
-    .update({ name, price: input.priceRupees })
+    .update({ name, price: input.priceRupees, is_veg: input.isVeg })
     .eq("id", id);
   if (!error) return null;
   if (error.code === "23505") return "An item with this name already exists in this category.";

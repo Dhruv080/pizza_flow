@@ -5,7 +5,7 @@
 // — this page renders only once a session is confirmed.
 
 import { useEffect, useMemo, useState } from "react";
-import { computeAggregates, todaysOrders } from "@/lib/analytics";
+import { computeAggregates, computeRepeatCustomers, todaysOrders } from "@/lib/analytics";
 import { formatDateTime, formatPaise, paiseToRupees } from "@/lib/format";
 import { getEffectiveAiFeatures, getOrders, isDemoMode } from "@/lib/data";
 import { PAYMENT_MODES, type CompletedOrder, type PaymentMode } from "@/lib/types";
@@ -173,6 +173,8 @@ export default function AdminPage() {
 
   const pageCount = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
   const pagedOrders = filteredOrders.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+
+  const repeatCustomers = useMemo(() => (orders ? computeRepeatCustomers(orders) : []), [orders]);
 
   if (loadError) return <div className="banner banner-error">Could not load orders: {loadError}</div>;
   if (!orders || !today || !periodStats) return <p className="page-sub">Loading orders…</p>;
@@ -368,6 +370,42 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <h2>Top repeat customers</h2>
+        <p className="page-sub">Customers with more than one order, ranked by visit count.</p>
+        <div className="table-scroll">
+          <table className="orders-table">
+            <thead>
+              <tr>
+                <th>Customer</th>
+                <th>Phone</th>
+                <th>Visits</th>
+                <th>Last visit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {repeatCustomers.length === 0 && (
+                <tr>
+                  <td colSpan={4} style={{ color: "var(--muted)" }}>
+                    No repeat customers yet.
+                  </td>
+                </tr>
+              )}
+              {repeatCustomers.map((customer) => (
+                <tr key={customer.phone}>
+                  <td>{customer.name}</td>
+                  <td>{customer.phone}</td>
+                  <td>
+                    <strong>{customer.visitCount}</strong>
+                  </td>
+                  <td>{formatDateTime(customer.lastVisitAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   );

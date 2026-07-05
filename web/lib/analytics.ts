@@ -144,3 +144,36 @@ export function computePizzaRatingSummary(feedback: OrderFeedbackRecord[]): Rati
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+export interface RepeatCustomer {
+  phone: string;
+  name: string; // most recent name on file for this phone
+  visitCount: number;
+  lastVisitAt: string; // ISO
+}
+
+/**
+ * Customers ranked by how many paid orders they've placed, keyed by phone
+ * number (names can vary in casing/spelling across visits, phone doesn't).
+ * Only customers with more than one visit are "repeat" customers; single-visit
+ * customers are excluded. Sorted by visit count, most first.
+ */
+export function computeRepeatCustomers(orders: CompletedOrder[]): RepeatCustomer[] {
+  const byPhone = new Map<string, { name: string; visitCount: number; lastVisitAt: string }>();
+  for (const order of orders) {
+    const entry = byPhone.get(order.phone);
+    if (!entry) {
+      byPhone.set(order.phone, { name: order.customerName, visitCount: 1, lastVisitAt: order.createdAt });
+      continue;
+    }
+    entry.visitCount += 1;
+    if (order.createdAt > entry.lastVisitAt) {
+      entry.lastVisitAt = order.createdAt;
+      entry.name = order.customerName;
+    }
+  }
+  return [...byPhone.entries()]
+    .map(([phone, v]) => ({ phone, ...v }))
+    .filter((c) => c.visitCount > 1)
+    .sort((a, b) => b.visitCount - a.visitCount);
+}

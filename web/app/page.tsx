@@ -168,6 +168,10 @@ function OrderFlow({
   const [pizzaId, setPizzaId] = useState("");
   const [toppingIds, setToppingIds] = useState<string[]>([]);
   const [builderError, setBuilderError] = useState("");
+  const [vegFilter, setVegFilter] = useState<"all" | "veg" | "nonveg">("all");
+  const visiblePizzas = menu.pizzas.filter(
+    (item) => vegFilter === "all" || (vegFilter === "veg" ? item.isVeg : !item.isVeg)
+  );
   // cart + payment
   const [cart, setCart] = useState<CartLine[]>([]);
   const [paymentMode, setPaymentMode] = useState<PaymentMode | null>(null);
@@ -395,13 +399,38 @@ function OrderFlow({
 
           <div className="card" style={{ marginTop: 16 }}>
             <h2>Choose your pizza</h2>
+            <div className="veg-filter">
+              {(["all", "veg", "nonveg"] as const).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  className={`veg-filter-btn ${vegFilter === f ? "selected" : ""}`}
+                  onClick={() => {
+                    setVegFilter(f);
+                    const stillVisible =
+                      f === "all" || !selectedPizza || (f === "veg" ? selectedPizza.isVeg : !selectedPizza.isVeg);
+                    if (!stillVisible) {
+                      setPizzaId("");
+                      setBaseId("");
+                      setToppingIds([]);
+                    }
+                  }}
+                >
+                  {f !== "all" && <span className={`veg-dot ${f === "nonveg" ? "nonveg" : ""}`} />}
+                  {f === "all" ? "All" : f === "veg" ? "Veg" : "Non-veg"}
+                </button>
+              ))}
+            </div>
             <div className="icard-grid">
-              {menu.pizzas.map((item) => (
+              {visiblePizzas.map((item) => (
                 <button
                   key={item.id}
                   className={`icard ${pizzaId === item.id ? "selected" : ""}`}
                   onClick={() => setPizzaId(item.id)}
                 >
+                  <span className="veg-tag icard-veg-tag">
+                    <span className={`veg-dot ${item.isVeg ? "" : "nonveg"}`} aria-hidden="true" />
+                  </span>
                   {bestSellerIds.includes(item.id) && (
                     <span className="best-seller-tag">★ Best seller</span>
                   )}
@@ -409,6 +438,11 @@ function OrderFlow({
                   <span className="icard-price">{formatPaise(item.pricePaise)}</span>
                 </button>
               ))}
+              {visiblePizzas.length === 0 && (
+                <p className="page-sub" style={{ gridColumn: "1 / -1" }}>
+                  No pizzas match this filter.
+                </p>
+              )}
             </div>
 
             {selectedPizza && (

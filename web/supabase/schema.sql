@@ -22,9 +22,13 @@ create table if not exists menu_items (
   name text not null,
   price numeric(10, 2) not null check (price > 0),
   is_active boolean not null default true,
+  is_veg boolean not null default true,
   created_at timestamptz not null default now(),
   unique (category, name)
 );
+
+-- Upgrade path for databases created before veg/non-veg tagging existed.
+alter table menu_items add column if not exists is_veg boolean not null default true;
 
 -- ---------------------------------------------------------------- orders
 -- Lifecycle: 'placed' from the first "Confirm and order" click (payment_mode

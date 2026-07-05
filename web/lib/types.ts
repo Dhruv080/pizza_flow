@@ -9,6 +9,7 @@ export interface MenuItem {
   category: MenuCategory;
   name: string;
   pricePaise: number;
+  isVeg: boolean;
 }
 
 export interface Menu {

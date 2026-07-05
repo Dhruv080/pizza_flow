@@ -22,6 +22,15 @@ const CATEGORIES: { key: MenuCategory; label: string }[] = [
   { key: "topping", label: "Toppings" },
 ];
 
+function VegTag({ isVeg }: { isVeg: boolean }) {
+  return (
+    <span className="veg-tag">
+      <span className={`veg-dot ${isVeg ? "" : "nonveg"}`} aria-hidden="true" />
+      {isVeg ? "Veg" : "Non-veg"}
+    </span>
+  );
+}
+
 export default function MenuManagementPage() {
   const [items, setItems] = useState<AdminMenuItem[] | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -85,6 +94,7 @@ function CategorySection({
             <tr>
               <th>Name</th>
               <th>Price</th>
+              <th>Type</th>
               <th>Status</th>
               <th></th>
             </tr>
@@ -92,7 +102,7 @@ function CategorySection({
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={4} style={{ color: "var(--muted)" }}>
+                <td colSpan={5} style={{ color: "var(--muted)" }}>
                   No items yet.
                 </td>
               </tr>
@@ -112,13 +122,14 @@ function MenuItemRow({ item, onChanged }: { item: AdminMenuItem; onChanged: () =
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(item.name);
   const [price, setPrice] = useState(String(paiseToRupees(item.pricePaise)));
+  const [isVeg, setIsVeg] = useState(item.isVeg);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   async function save() {
     setBusy(true);
     setError("");
-    const message = await updateMenuItem(item.id, { name, priceRupees: parseFloat(price) });
+    const message = await updateMenuItem(item.id, { name, priceRupees: parseFloat(price), isVeg });
     setBusy(false);
     if (message) setError(message);
     else {
@@ -151,6 +162,17 @@ function MenuItemRow({ item, onChanged }: { item: AdminMenuItem; onChanged: () =
             style={{ width: 90 }}
           />
         </td>
+        <td>
+          <select
+            className="select"
+            value={isVeg ? "veg" : "nonveg"}
+            onChange={(e) => setIsVeg(e.target.value === "veg")}
+            style={{ width: 110 }}
+          >
+            <option value="veg">Veg</option>
+            <option value="nonveg">Non-veg</option>
+          </select>
+        </td>
         <td colSpan={2}>
           {error && <span className="error-text">{error}</span>}
           <button className="btn btn-small" onClick={save} disabled={busy}>
@@ -162,6 +184,7 @@ function MenuItemRow({ item, onChanged }: { item: AdminMenuItem; onChanged: () =
               setEditing(false);
               setName(item.name);
               setPrice(String(paiseToRupees(item.pricePaise)));
+              setIsVeg(item.isVeg);
               setError("");
             }}
             disabled={busy}
@@ -177,6 +200,9 @@ function MenuItemRow({ item, onChanged }: { item: AdminMenuItem; onChanged: () =
     <tr style={!item.isActive ? { opacity: 0.55 } : undefined}>
       <td>{item.name}</td>
       <td>{formatPaise(item.pricePaise)}</td>
+      <td>
+        <VegTag isVeg={item.isVeg} />
+      </td>
       <td>{item.isActive ? "Active" : "Deactivated"}</td>
       <td>
         {error && <span className="error-text">{error}</span>}
@@ -194,6 +220,7 @@ function MenuItemRow({ item, onChanged }: { item: AdminMenuItem; onChanged: () =
 function AddItemForm({ category, onAdded }: { category: MenuCategory; onAdded: () => void }) {
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
+  const [isVeg, setIsVeg] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -201,12 +228,13 @@ function AddItemForm({ category, onAdded }: { category: MenuCategory; onAdded: (
     e.preventDefault();
     setBusy(true);
     setError("");
-    const message = await createMenuItem({ category, name, priceRupees: parseFloat(price) });
+    const message = await createMenuItem({ category, name, priceRupees: parseFloat(price), isVeg });
     setBusy(false);
     if (message) setError(message);
     else {
       setName("");
       setPrice("");
+      setIsVeg(true);
       onAdded();
     }
   }
@@ -229,6 +257,15 @@ function AddItemForm({ category, onAdded }: { category: MenuCategory; onAdded: (
         style={{ width: 100 }}
         required
       />
+      <select
+        className="select"
+        value={isVeg ? "veg" : "nonveg"}
+        onChange={(e) => setIsVeg(e.target.value === "veg")}
+        style={{ width: 110 }}
+      >
+        <option value="veg">Veg</option>
+        <option value="nonveg">Non-veg</option>
+      </select>
       <button className="btn btn-small" disabled={busy}>
         {busy ? "Adding…" : "Add"}
       </button>
