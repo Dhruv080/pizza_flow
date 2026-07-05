@@ -354,46 +354,48 @@ function Composer({
       <p className="page-sub" style={{ fontWeight: 600, margin: "16px 0 6px" }}>
         2. Set the discount
       </p>
-      <select
-        className="select"
-        style={{ maxWidth: 320 }}
-        value={discountType}
-        onChange={(e) => setDiscountType(e.target.value as PromoDiscountType)}
-      >
-        <option value="percent">Percent off the whole order</option>
-        <option value="topping">Free topping of choice on one pizza</option>
-      </select>
-      {discountType === "percent" ? (
-        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
-          <input
-            type="number"
-            style={{ maxWidth: 100 }}
-            min={PROMO_PERCENT_MIN}
-            max={PROMO_PERCENT_MAX}
-            value={percentValue}
-            onChange={(e) =>
-              setPercentValue(Math.min(PROMO_PERCENT_MAX, Math.max(PROMO_PERCENT_MIN, Number(e.target.value) || 0)))
-            }
-          />
-          <span className="page-sub" style={{ margin: 0 }}>
-            % off (between {PROMO_PERCENT_MIN} and {PROMO_PERCENT_MAX})
-          </span>
-        </div>
-      ) : (
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
         <select
           className="select"
-          style={{ marginTop: 10, maxWidth: 320 }}
-          value={featuredItemId}
-          onChange={(e) => setFeaturedItemId(e.target.value)}
+          style={{ maxWidth: 260, width: "auto", flex: "1 1 220px" }}
+          value={discountType}
+          onChange={(e) => setDiscountType(e.target.value as PromoDiscountType)}
         >
-          <option value="">Choose a pizza…</option>
-          {pizzas.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
+          <option value="percent">Percent off the whole order</option>
+          <option value="topping">Free topping of choice on one pizza</option>
         </select>
-      )}
+        {discountType === "percent" ? (
+          <>
+            <input
+              type="number"
+              style={{ maxWidth: 80 }}
+              min={PROMO_PERCENT_MIN}
+              max={PROMO_PERCENT_MAX}
+              value={percentValue}
+              onChange={(e) =>
+                setPercentValue(Math.min(PROMO_PERCENT_MAX, Math.max(PROMO_PERCENT_MIN, Number(e.target.value) || 0)))
+              }
+            />
+            <span className="page-sub" style={{ margin: 0, whiteSpace: "nowrap" }}>
+              % off ({PROMO_PERCENT_MIN}-{PROMO_PERCENT_MAX})
+            </span>
+          </>
+        ) : (
+          <select
+            className="select"
+            style={{ maxWidth: 260, width: "auto", flex: "1 1 220px" }}
+            value={featuredItemId}
+            onChange={(e) => setFeaturedItemId(e.target.value)}
+          >
+            <option value="">Choose a pizza…</option>
+            {pizzas.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
       <p className="page-sub" style={{ marginTop: 8, fontSize: 12.5 }}>
         This is the only discount the banner will describe — the checkout applies it automatically
         whenever the code below is entered and its window is open.
@@ -402,31 +404,38 @@ function Composer({
       <p className="page-sub" style={{ fontWeight: 600, margin: "16px 0 6px" }}>
         3. Code and schedule
       </p>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end" }}>
-        <label className="field" style={{ margin: 0 }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>Promo code</span>
+      <div className="promo-schedule">
+        <div className="field">
+          <label htmlFor="promo-code-input">Promo code</label>
           <input
+            id="promo-code-input"
             type="text"
-            style={{ maxWidth: 160, textTransform: "uppercase" }}
+            style={{ textTransform: "uppercase" }}
             value={code}
             maxLength={12}
             placeholder="e.g. HOLI10"
             onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12))}
           />
-        </label>
-        <label className="field" style={{ margin: 0 }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>Starts</span>
-          <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
-        </label>
-        <label className="field" style={{ margin: 0 }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>Ends</span>
+        </div>
+        <div className="field">
+          <label htmlFor="promo-starts">Starts</label>
           <input
+            id="promo-starts"
+            type="datetime-local"
+            value={startsAt}
+            onChange={(e) => setStartsAt(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="promo-ends">Ends</label>
+          <input
+            id="promo-ends"
             type="datetime-local"
             value={endsAt}
             min={startsAt}
             onChange={(e) => setEndsAt(e.target.value)}
           />
-        </label>
+        </div>
       </div>
 
       <button className="btn" style={{ marginTop: 16 }} onClick={generate} disabled={busy || !canGenerate}>

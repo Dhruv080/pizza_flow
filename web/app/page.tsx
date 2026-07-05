@@ -189,7 +189,7 @@ function OrderFlow({
   const [appliedCode, setAppliedCode] = useState<PromoCode | null>(null);
   const [promoInput, setPromoInput] = useState("");
   const [promoError, setPromoError] = useState("");
-  const [showCodes, setShowCodes] = useState(false);
+  const [showPromoModal, setShowPromoModal] = useState(false);
   const [placeError, setPlaceError] = useState("");
   const [placing, setPlacing] = useState(false);
   const [receipt, setReceipt] = useState<CompletedOrder | null>(null);
@@ -223,6 +223,7 @@ function OrderFlow({
     setAppliedCode(match);
     setPromoInput("");
     setPromoError("");
+    setShowPromoModal(false);
   }
 
   const selectedBase = menu.bases.find((b) => b.id === baseId);
@@ -564,13 +565,10 @@ function OrderFlow({
               return (
                 <div className="cart-line" key={index}>
                   <div className="names">
-                    <strong>{line.pizza.name}</strong>
-                    <small>
-                      {line.base.name}
-                      {line.toppings.length > 0 && ` · ${line.toppings.map((t) => t.name).join(", ")}`}
-                    </small>
                     <details className="line-details">
-                      <summary />
+                      <summary>
+                        <strong>{line.pizza.name}</strong>
+                      </summary>
                       <div className="line-breakdown-row">
                         <span>{line.pizza.name} (pizza)</span>
                         <span>{formatPaise(line.pizza.pricePaise)}</span>
@@ -590,6 +588,10 @@ function OrderFlow({
                         <span>{formatPaise(unitPricePaise(line) * line.quantity)}</span>
                       </div>
                     </details>
+                    <small>
+                      {line.base.name}
+                      {line.toppings.length > 0 && ` · ${line.toppings.map((t) => t.name).join(", ")}`}
+                    </small>
                     {confirmed ? (
                       <span className="line-confirmed-tag">✓ Confirmed · Qty {line.quantity}</span>
                     ) : (
@@ -648,50 +650,73 @@ function OrderFlow({
                     <button onClick={() => setAppliedCode(null)}>remove</button>
                   </div>
                 ) : (
-                  <div style={{ marginTop: 12 }}>
-                    <div className="promo-code-row">
-                      <input
-                        type="text"
-                        placeholder="Promo code"
-                        value={promoInput}
-                        maxLength={12}
-                        onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
-                        onKeyDown={(e) => e.key === "Enter" && applyPromoCode()}
-                      />
-                      <button className="btn btn-small" onClick={applyPromoCode} disabled={!promoInput.trim()}>
-                        Apply
-                      </button>
-                    </div>
-                    {promoError && <p className="error-text">{promoError}</p>}
-                    {activeCodes.length > 0 && (
-                      <>
-                        <button className="promo-codes-toggle" onClick={() => setShowCodes((s) => !s)}>
-                          {showCodes ? "Hide" : "See"} available codes ({activeCodes.length})
+                  <button
+                    type="button"
+                    className="promo-cta"
+                    style={{ marginTop: 12 }}
+                    onClick={() => setShowPromoModal(true)}
+                  >
+                    <span>Apply a promo code</span>
+                    <span aria-hidden="true">›</span>
+                  </button>
+                )}
+
+                {showPromoModal && (
+                  <div className="modal-backdrop" onClick={() => setShowPromoModal(false)}>
+                    <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+                      <div className="modal-head">
+                        <h3>Apply a promo code</h3>
+                        <button
+                          type="button"
+                          className="modal-close"
+                          aria-label="Close"
+                          onClick={() => setShowPromoModal(false)}
+                        >
+                          ✕
                         </button>
-                        {showCodes && (
-                          <div className="promo-code-list">
-                            {activeCodes.map((c) => (
-                              <div className="promo-code-item" key={c.id}>
-                                <div>
-                                  <code>{c.code}</code>
-                                  <small>{c.headline}</small>
-                                </div>
-                                <button
-                                  className="btn btn-small btn-secondary"
-                                  onClick={() => {
-                                    setAppliedCode(c);
-                                    setShowCodes(false);
-                                    setPromoError("");
-                                  }}
-                                >
-                                  Use this code
-                                </button>
+                      </div>
+                      <div className="promo-code-row">
+                        <input
+                          type="text"
+                          placeholder="Enter code"
+                          value={promoInput}
+                          maxLength={12}
+                          autoFocus
+                          onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                          onKeyDown={(e) => e.key === "Enter" && applyPromoCode()}
+                        />
+                        <button className="btn btn-small" onClick={applyPromoCode} disabled={!promoInput.trim()}>
+                          Apply
+                        </button>
+                      </div>
+                      {promoError && <p className="error-text">{promoError}</p>}
+                      {activeCodes.length > 0 ? (
+                        <div className="promo-code-list" style={{ marginTop: 14 }}>
+                          {activeCodes.map((c) => (
+                            <div className="promo-code-item" key={c.id}>
+                              <div>
+                                <code>{c.code}</code>
+                                <small>{c.headline}</small>
                               </div>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    )}
+                              <button
+                                className="btn btn-small btn-secondary"
+                                onClick={() => {
+                                  setAppliedCode(c);
+                                  setPromoError("");
+                                  setShowPromoModal(false);
+                                }}
+                              >
+                                Apply
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="page-sub" style={{ marginTop: 14, marginBottom: 0 }}>
+                          No active codes right now.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
 
