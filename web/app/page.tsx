@@ -74,6 +74,7 @@ export default function OrderPage() {
     return (
       <TableGate
         outletName={outlet.name}
+        tableCount={outlet.tableCount || TABLE_COUNT}
         onStart={(table) => {
           setTableNumber(table);
           setSessionStartedAt(new Date().toISOString());
@@ -100,7 +101,7 @@ export default function OrderPage() {
   );
 }
 
-function TableGate({ outletName, onStart }: { outletName: string; onStart: (table: number) => void }) {
+function TableGate({ outletName, tableCount, onStart }: { outletName: string; tableCount: number; onStart: (table: number) => void }) {
   const [table, setTable] = useState("");
   return (
     <div className="gate">
@@ -119,7 +120,7 @@ function TableGate({ outletName, onStart }: { outletName: string; onStart: (tabl
             onChange={(e) => setTable(e.target.value)}
           >
             <option value="">Select a table…</option>
-            {Array.from({ length: TABLE_COUNT }, (_, i) => i + 1).map((n) => (
+            {Array.from({ length: tableCount }, (_, i) => i + 1).map((n) => (
               <option key={n} value={n}>
                 Table {n}
               </option>

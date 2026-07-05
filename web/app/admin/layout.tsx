@@ -6,6 +6,7 @@
 // only place that checks.
 
 import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import AdminNav from "@/components/AdminNav";
 import InsightsChatWidget from "@/components/InsightsChatWidget";
 import { adminSignIn, adminSignOut, getAdminSession, getEffectiveAiFeatures } from "@/lib/data";
@@ -15,6 +16,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [signedIn, setSignedIn] = useState(false);
   const [insightsEnabled, setInsightsEnabled] = useState(true);
   const [digestEnabled, setDigestEnabled] = useState(true);
+  const [activeRole, setActiveRole] = useState<"admin" | "manager">("admin");
+  const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     getAdminSession().then((ok) => {
@@ -24,6 +28,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }, []);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedRole = localStorage.getItem("pizzaflow_admin_role") || "admin";
+      setActiveRole(savedRole as "admin" | "manager");
+    }
+  }, [signedIn]);
+
+  useEffect(() => {
     if (!signedIn) return;
     getEffectiveAiFeatures().then((features) => {
       setInsightsEnabled(features.insights);
@@ -31,26 +42,52 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     });
   }, [signedIn]);
 
+  useEffect(() => {
+    if (signedIn && activeRole === "manager" && pathname !== "/admin") {
+      router.push("/admin");
+    }
+  }, [signedIn, activeRole, pathname, router]);
+
+  const handleRoleChange = (newRole: "admin" | "manager") => {
+    localStorage.setItem("pizzaflow_admin_role", newRole);
+    setActiveRole(newRole);
+    if (newRole === "manager" && pathname !== "/admin") {
+      router.push("/admin");
+    }
+  };
+
   if (!checked) return <p className="page-sub">Checking session…</p>;
-  if (!signedIn) return <Login onSignedIn={() => setSignedIn(true)} />;
+  if (!signedIn) {
+    return (
+      <Login
+        onSignedIn={(role) => {
+          localStorage.setItem("pizzaflow_admin_role", role);
+          setActiveRole(role);
+          setSignedIn(true);
+        }}
+      />
+    );
+  }
 
   return (
     <>
       <AdminNav
+        activeRole={activeRole}
+        onRoleChange={handleRoleChange}
         onSignOut={async () => {
           await adminSignOut();
           setSignedIn(false);
         }}
       />
       {children}
-      {(insightsEnabled || digestEnabled) && (
+      {activeRole === "admin" && (insightsEnabled || digestEnabled) && (
         <InsightsChatWidget insightsEnabled={insightsEnabled} digestEnabled={digestEnabled} />
       )}
     </>
   );
 }
 
-function Login({ onSignedIn }: { onSignedIn: () => void }) {
+function Login({ onSignedIn }: { onSignedIn: (role: "admin" | "manager") => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -62,8 +99,12 @@ function Login({ onSignedIn }: { onSignedIn: () => void }) {
     setError("");
     const message = await adminSignIn(email, password);
     setBusy(false);
-    if (message) setError(message);
-    else onSignedIn();
+    if (message) {
+      setError(message);
+    } else {
+      const resolvedRole = email.toLowerCase().includes("manager") ? "manager" : "admin";
+      onSignedIn(resolvedRole);
+    }
   }
 
   return (
@@ -78,6 +119,7 @@ function Login({ onSignedIn }: { onSignedIn: () => void }) {
               id="email"
               type="text"
               autoComplete="username"
+              placeholder="e.g. manager or admin"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
