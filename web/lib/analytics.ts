@@ -4,7 +4,7 @@
 
 import { paiseToRupees } from "./format";
 import type { CompletedOrder } from "./types";
-import type { AdminMenuItem, OrderFeedbackRecord } from "./data";
+import type { AdminMenuItem, OrderFeedbackRecord, PromoCode } from "./data";
 
 export interface OrderAggregates {
   generatedAt: string;
@@ -286,7 +286,6 @@ export interface FeedbackTheme {
   entryIndexes: number[];
   rootCause: string;
   suggestedAction: string;
-  draftReply: string;
 }
 
 export interface FeedbackAnalysis {
@@ -308,4 +307,52 @@ export function buildFeedbackDataset(feedback: OrderFeedbackRecord[], limit = 10
       comment: entry.comments,
     };
   });
+}
+
+// ------------------------------------------------------- promo code history
+// How each promo code actually performed: every number here comes straight
+// from paid orders that redeemed the code (matched by the snapshot stored on
+// the order, not a live join) — nothing is estimated.
+
+export interface PromoCodeStats {
+  id: string;
+  code: string;
+  headline: string;
+  startsAt: string;
+  endsAt: string;
+  status: "scheduled" | "active" | "expired";
+  redemptions: number;
+  revenuePaise: number; // total paid on orders that redeemed this code
+  discountPaise: number; // total promo discount given under this code
+}
+
+export function computePromoCodeStats(orders: CompletedOrder[], codes: PromoCode[]): PromoCodeStats[] {
+  const now = Date.now();
+  const byCode = new Map<string, { redemptions: number; revenuePaise: number; discountPaise: number }>();
+  for (const order of orders) {
+    if (!order.promoCode) continue;
+    const entry = byCode.get(order.promoCode) ?? { redemptions: 0, revenuePaise: 0, discountPaise: 0 };
+    entry.redemptions += 1;
+    entry.revenuePaise += order.totalPaise;
+    entry.discountPaise += order.promoDiscountPaise;
+    byCode.set(order.promoCode, entry);
+  }
+
+  return codes
+    .map((c) => {
+      const stats = byCode.get(c.code) ?? { redemptions: 0, revenuePaise: 0, discountPaise: 0 };
+      const start = new Date(c.startsAt).getTime();
+      const end = new Date(c.endsAt).getTime();
+      const status: PromoCodeStats["status"] = now < start ? "scheduled" : now > end ? "expired" : "active";
+      return {
+        id: c.id,
+        code: c.code,
+        headline: c.headline,
+        startsAt: c.startsAt,
+        endsAt: c.endsAt,
+        status,
+        ...stats,
+      };
+    })
+    .sort((a, b) => (a.startsAt < b.startsAt ? 1 : -1));
 }

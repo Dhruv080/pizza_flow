@@ -54,6 +54,13 @@ create table if not exists orders (
 -- Upgrade path for databases created before dine-in table tracking existed.
 alter table orders add column if not exists table_number int check (table_number between 1 and 50);
 
+-- Upgrade path for databases created before promo codes existed. promo_code is a
+-- snapshot of the code redeemed (not a foreign key) so history survives even if
+-- the promo_codes row is later edited; promo_discount is the slice of `discount`
+-- that came from the code, so bulk vs. promo savings can be told apart later.
+alter table orders add column if not exists promo_code text;
+alter table orders add column if not exists promo_discount numeric(10, 2) not null default 0 check (promo_discount >= 0);
+
 -- Upgrade path for databases created before the confirm/pay lifecycle existed.
 -- Default 'paid' here (unlike the fresh-create default above) because it
 -- backfills rows created under the old one-shot flow, which were always
@@ -112,6 +119,39 @@ create policy "feedback insertable by anyone" on order_feedback
 drop policy if exists "feedback readable by admin" on order_feedback;
 create policy "feedback readable by admin" on order_feedback
   for select to authenticated using (true);
+
+-- ------------------------------------------------------------- promo codes
+-- Admin → Promos: a code the customer types in at checkout for an owner-picked
+-- discount, live only between starts_at and ends_at (checked live, client-side —
+-- no cron needed: a code simply stops being offered once its window ends).
+-- discount_value is a percent (1-50) for 'percent' codes and unused for 'topping'
+-- codes, which instead waive a topping on featured_item_id. Rows are never
+-- deleted so `orders.promo_code` history and revenue/discount stats stay meaningful.
+create table if not exists promo_codes (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique check (code ~ '^[A-Z0-9]{3,12}$'),
+  headline text not null check (length(headline) <= 80),
+  message text not null check (length(message) <= 600),
+  discount_type text not null check (discount_type in ('percent', 'topping')),
+  discount_value numeric(5, 2) not null default 0 check (discount_value >= 0),
+  featured_item_id uuid references menu_items (id),
+  starts_at timestamptz not null,
+  ends_at timestamptz not null check (ends_at > starts_at),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists promo_codes_window_idx on promo_codes (starts_at, ends_at);
+
+alter table promo_codes enable row level security;
+
+-- Readable by everyone: the ordering page must look up/validate a code a
+-- customer types in, and list currently-active codes, without an admin session.
+drop policy if exists "promo codes readable by all" on promo_codes;
+create policy "promo codes readable by all" on promo_codes
+  for select using (true);
+drop policy if exists "promo codes editable by admin" on promo_codes;
+create policy "promo codes editable by admin" on promo_codes
+  for all to authenticated using (true) with check (true);
 
 -- ---------------------------------------------------------------- settings
 -- Outlet-level configuration editable from the admin console (e.g. the

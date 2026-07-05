@@ -1,9 +1,12 @@
 // POST /api/ai/promo — Festival Promo Planner.
-// Body: { occasion: string, offer: string, menu: MenuPizzaInfo[], facts: PromoFacts }
-// The occasion, the offer and every fact are chosen/computed deterministically
-// (occasion calendar + computePromoFacts) — the LLM only writes the broadcast
-// copy in strict JSON. Featured items are re-validated against the menu names
-// supplied, so a hallucinated item is silently dropped.
+// Body: { occasion: string, code: string, discount: {type, value, featuredItemName}, menu, facts }
+// The occasion, the code and the discount are all chosen/computed deterministically
+// by the admin (occasion calendar, the discount type/value/pizza they picked,
+// computePromoFacts) — the server turns the discount into one fixed DISCOUNT
+// sentence and the LLM only writes the banner copy around it, in strict JSON.
+// Featured items are re-validated against the menu names supplied, the code is
+// enforced to appear verbatim in the message, so nothing shown to a customer can
+// be hallucinated.
 
 import { NextResponse } from "next/server";
 import { getAiModel, getAiPrompt, getOpenRouterApiKey, isAiFeatureEnabled } from "@/lib/data";
@@ -14,6 +17,12 @@ interface MenuPizzaInfo {
   name: string;
   priceRupees: number;
   isVeg: boolean;
+}
+
+interface DiscountInput {
+  type?: "percent" | "topping";
+  value?: number;
+  featuredItemName?: string;
 }
 
 interface PromoReply {
@@ -31,7 +40,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { occasion?: string; offer?: string; menu?: MenuPizzaInfo[]; facts?: PromoFacts };
+  let body: { occasion?: string; code?: string; discount?: DiscountInput; menu?: MenuPizzaInfo[]; facts?: PromoFacts };
   try {
     body = await request.json();
   } catch {
@@ -39,11 +48,23 @@ export async function POST(request: Request) {
   }
 
   const occasion = (body.occasion ?? "").trim().slice(0, 300);
-  const offer = (body.offer ?? "").trim().slice(0, 200) || "none";
+  const code = (body.code ?? "").trim().toUpperCase().slice(0, 12);
   const menu = (Array.isArray(body.menu) ? body.menu : []).slice(0, 60);
-  if (!occasion || !menu.length || !body.facts) {
-    return NextResponse.json({ error: "An occasion, the menu and sales facts are required" }, { status: 400 });
+  const discount = body.discount;
+  if (!occasion || !code || !menu.length || !body.facts || !discount) {
+    return NextResponse.json(
+      { error: "An occasion, a code, the discount, the menu and sales facts are required" },
+      { status: 400 }
+    );
   }
+
+  // The AI never sees "percent" / "topping" / raw numbers to combine itself —
+  // the server writes the one sentence it is allowed to restate, so it cannot
+  // invent a different discount even by miscalculating.
+  const discountText =
+    discount.type === "percent"
+      ? `${Math.round(Number(discount.value))}% off the whole order`
+      : `a free topping of your choice on ${String(discount.featuredItemName ?? "the featured pizza").slice(0, 60)}`;
 
   const menuLines = menu
     .map((p) => `${String(p.name).slice(0, 60)} | ₹${Number(p.priceRupees)} | ${p.isVeg ? "veg" : "non-veg"}`)
@@ -58,19 +79,25 @@ export async function POST(request: Request) {
     const reply = await chatCompletion({
       system: prompt
         .replace("{{OCCASION}}", occasion)
-        .replace("{{OFFER}}", offer)
+        .replace("{{DISCOUNT}}", discountText)
+        .replace("{{CODE}}", code)
         .replace("{{MENU}}", menuLines)
         .replace("{{FACTS}}", JSON.stringify(body.facts, null, 1)),
-      user: "Write the broadcast.",
+      user: "Write the banner.",
       jsonMode: true,
-      maxTokens: 500,
+      maxTokens: 400,
       model,
       apiKey: apiKey ?? undefined,
     });
 
     const parsed = parseJsonReply<PromoReply>(reply);
-    const message = String(parsed.message ?? "").trim().slice(0, 700);
+    let message = String(parsed.message ?? "").trim().slice(0, 400);
     if (!message) throw new AiUnavailableError("Empty promo message");
+    // The code is how the discount is actually redeemed — never trust the model
+    // to have included it; append it deterministically if it didn't.
+    if (!message.toUpperCase().includes(code)) {
+      message = `${message} Use code ${code} at checkout.`;
+    }
 
     // Only items that actually exist on the menu survive.
     const menuNames = new Map(menu.map((p) => [String(p.name).toLowerCase(), String(p.name)]));

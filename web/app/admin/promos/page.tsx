@@ -2,53 +2,43 @@
 
 // Festival Promo Planner. Division of labour, same as every AI feature here:
 //   rules  — the occasion calendar (lib/occasions.ts), the sales facts
-//            (computePromoFacts) and the offer the owner picks are all
-//            deterministic inputs;
-//   the AI — only writes the WhatsApp broadcast copy from those inputs, and
-//            the route re-validates every featured item against the menu.
-// Publishing puts the approved text on the customer ordering page as a banner
-// (settings row `promo_current`) — billing rules are never touched.
+//            (computePromoFacts), and the discount/code/schedule the owner
+//            picks are all deterministic inputs;
+//   the AI — only writes the banner headline/message from those inputs, and
+//            the route re-validates every featured item against the menu and
+//            forces the code itself to appear verbatim.
+// A code goes live purely by its start/end date-time — no publish step, no
+// WhatsApp, nothing sent anywhere. It just appears on the ordering page (and
+// in "see available codes" at checkout) for its scheduled window, and stops
+// automatically once that window ends. Redemptions are tracked on the order
+// itself, so the table below shows exactly how much revenue and discount each
+// code produced — real numbers, not estimates.
 
 import { useEffect, useMemo, useState } from "react";
 import {
   computePizzaRatingSummary,
+  computePromoCodeStats,
   computePromoFacts,
+  type PromoCodeStats,
   type PromoFacts,
 } from "@/lib/analytics";
+import { PROMO_PERCENT_MAX, PROMO_PERCENT_MIN, type PromoDiscountType } from "@/lib/billing";
 import {
-  clearPublishedPromo,
+  createPromoCode,
+  deactivatePromoCode,
   getAllMenuItems,
   getEffectiveAiFeatures,
   getOrderFeedback,
   getOrders,
-  getPublishedPromo,
+  getPromoCodes,
   isDemoMode,
-  publishPromo,
   type AdminMenuItem,
-  type PublishedPromo,
+  type PromoCode,
 } from "@/lib/data";
 import { upcomingOccasions, type UpcomingOccasion } from "@/lib/occasions";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatPaise } from "@/lib/format";
 
 const CUSTOM_OCCASION = "__custom__";
-
-// The only offers the AI is allowed to mention. Everything except the standing
-// 5+ pizza discount is honoured manually at the counter — the planner writes
-// marketing copy, it never changes billing.
-const OFFERS = [
-  { id: "none", label: "No offer — just a warm nudge", text: "none" },
-  {
-    id: "bulk",
-    label: "Remind them: 10% off on 5+ pizzas (standing rule)",
-    text: "10% off applies automatically on orders of 5 or more pizzas — the outlet's standing rule",
-  },
-  {
-    id: "topping",
-    label: "Free topping of choice on the featured pizza",
-    text: "one free topping of choice on the featured pizza, for this occasion only",
-  },
-  { id: "custom", label: "Custom offer…", text: "" },
-] as const;
 
 interface DraftPromo {
   headline: string;
@@ -62,8 +52,14 @@ export default function PromosPage() {
   const [menuItems, setMenuItems] = useState<AdminMenuItem[]>([]);
   const [ratingsSummary, setRatingsSummary] = useState<ReturnType<typeof computePizzaRatingSummary> | null>(null);
   const [featureOn, setFeatureOn] = useState(true);
-  const [published, setPublished] = useState<PublishedPromo | null>(null);
+  const [codes, setCodes] = useState<PromoCode[]>([]);
   const [loadError, setLoadError] = useState("");
+
+  function reloadCodes() {
+    getPromoCodes()
+      .then(setCodes)
+      .catch(() => {});
+  }
 
   useEffect(() => {
     getOrders()
@@ -78,9 +74,7 @@ export default function PromosPage() {
     getEffectiveAiFeatures()
       .then((features) => setFeatureOn(features.promo))
       .catch(() => {});
-    getPublishedPromo()
-      .then(setPublished)
-      .catch(() => {});
+    reloadCodes();
   }, []);
 
   const activePizzas = useMemo(
@@ -91,6 +85,10 @@ export default function PromosPage() {
     if (!orders) return null;
     return computePromoFacts({ orders, menuPizzas: activePizzas, ratings: ratingsSummary });
   }, [orders, activePizzas, ratingsSummary]);
+  const stats: PromoCodeStats[] = useMemo(
+    () => (orders ? computePromoCodeStats(orders, codes) : []),
+    [orders, codes]
+  );
 
   if (loadError) return <div className="banner banner-error">Could not load orders: {loadError}</div>;
 
@@ -98,17 +96,14 @@ export default function PromosPage() {
     <>
       <h1>Promos</h1>
       <p className="page-sub">
-        Plan a WhatsApp broadcast around an upcoming occasion. The facts below come straight from
-        your orders — the AI only writes the words.
+        Create a discount code around an upcoming occasion — it appears on the ordering page and
+        goes live automatically for the window you set, and stops just as automatically once it ends.
       </p>
       {isDemoMode && (
         <div className="banner banner-demo">
-          <strong>Demo mode:</strong> facts come from this browser&apos;s stored orders; a published
-          promo is stored in this browser only.
+          <strong>Demo mode:</strong> facts and codes come from this browser&apos;s storage only.
         </div>
       )}
-
-      <PublishedCard published={published} onCleared={() => setPublished(null)} />
 
       <FactsCard facts={facts} />
 
@@ -117,61 +112,18 @@ export default function PromosPage() {
           <Composer
             facts={facts}
             pizzas={activePizzas}
-            onPublished={(promo) => setPublished(promo)}
+            onCreated={reloadCodes}
           />
         )
       ) : (
         <div className="banner banner-demo" style={{ marginTop: 16 }}>
           The promo planner is turned off in Admin → Settings → AI. The sales facts above still
-          update live; turn the feature on to draft a broadcast.
+          update live; turn the feature on to write a new banner.
         </div>
       )}
+
+      <PromoCodesTable stats={stats} onChanged={reloadCodes} />
     </>
-  );
-}
-
-// ----------------------------------------------------------- published promo
-
-function PublishedCard({
-  published,
-  onCleared,
-}: {
-  published: PublishedPromo | null;
-  onCleared: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  if (!published) return null;
-
-  async function remove() {
-    setBusy(true);
-    setError("");
-    const message = await clearPublishedPromo();
-    setBusy(false);
-    if (message) {
-      setError(message);
-      return;
-    }
-    onCleared();
-  }
-
-  return (
-    <div className="card" style={{ marginBottom: 16 }}>
-      <h2>Live on the ordering page</h2>
-      <p className="page-sub">
-        Customers currently see this banner
-        {published.publishedAt ? ` (published ${formatDateTime(published.publishedAt)})` : ""}. It
-        stays up until you remove it.
-      </p>
-      <div className="banner banner-promo">
-        <strong>🎉 {published.headline}</strong>
-        <div className="promo-text">{published.message}</div>
-      </div>
-      {error && <p className="error-text">{error}</p>}
-      <button className="btn btn-small btn-secondary" style={{ marginTop: 10 }} onClick={remove} disabled={busy}>
-        {busy ? "Removing…" : "Remove from ordering page"}
-      </button>
-    </div>
   );
 }
 
@@ -184,7 +136,10 @@ function FactsCard({ facts }: { facts: PromoFacts | null }) {
   return (
     <div className="card">
       <h2>Last {facts.windowDays} days at a glance</h2>
-      <p className="page-sub">Computed from the orders table — these are the facts the AI writes from.</p>
+      <p className="page-sub">
+        Straight from your paid orders below — real numbers, not AI guesses. Use them to decide
+        what to promote and what discount to offer.
+      </p>
       <div className="stat-row">
         <div className="stat">
           <div className="stat-label">Orders</div>
@@ -220,20 +175,43 @@ function FactsCard({ facts }: { facts: PromoFacts | null }) {
 
 // ----------------------------------------------------------------- composer
 
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** `<input type="datetime-local">` wants "yyyy-mm-ddThh:mm" in local time. */
+function toLocalInputValue(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function suggestCode(name: string): string {
+  const base = name.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "PROMO";
+  const suffix = Math.floor(10 + Math.random() * 90);
+  return `${base}${suffix}`.slice(0, 12);
+}
+
 function Composer({
   facts,
   pizzas,
-  onPublished,
+  onCreated,
 }: {
   facts: PromoFacts;
   pizzas: AdminMenuItem[];
-  onPublished: (promo: PublishedPromo) => void;
+  onCreated: () => void;
 }) {
   const occasions = useMemo(() => upcomingOccasions(), []);
   const [occasionId, setOccasionId] = useState<string>(occasions[0]?.id ?? CUSTOM_OCCASION);
   const [customOccasion, setCustomOccasion] = useState("");
-  const [offerId, setOfferId] = useState<(typeof OFFERS)[number]["id"]>("none");
-  const [customOffer, setCustomOffer] = useState("");
+  const [discountType, setDiscountType] = useState<PromoDiscountType>("percent");
+  const [percentValue, setPercentValue] = useState(10);
+  const [featuredItemId, setFeaturedItemId] = useState(pizzas[0]?.id ?? "");
+  const [code, setCode] = useState("");
+  const [startsAt, setStartsAt] = useState(() => toLocalInputValue(new Date()));
+  const [endsAt, setEndsAt] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return toLocalInputValue(d);
+  });
   const [draft, setDraft] = useState<DraftPromo | null>(null);
   const [busy, setBusy] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -241,6 +219,7 @@ function Composer({
   const [notice, setNotice] = useState("");
 
   const selected: UpcomingOccasion | null = occasions.find((o) => o.id === occasionId) ?? null;
+  const occasionName = occasionId === CUSTOM_OCCASION ? customOccasion.trim() : (selected?.name ?? "");
   const occasionText =
     occasionId === CUSTOM_OCCASION
       ? customOccasion.trim()
@@ -249,9 +228,24 @@ function Composer({
             selected.ongoing ? "happening now" : `starts in ${selected.startsInDays} day(s)`
           }. ${selected.angle}${selected.vegLean ? " Vegetarian-leaning occasion: feature only veg items." : ""}`
         : "";
-  const offerText = offerId === "custom" ? customOffer.trim() : OFFERS.find((o) => o.id === offerId)!.text;
+  const featuredItem = pizzas.find((p) => p.id === featuredItemId);
+
+  // Suggest a code whenever the occasion changes, without clobbering one the
+  // admin already typed.
+  useEffect(() => {
+    if (occasionName) setCode((prev) => prev || suggestCode(occasionName));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [occasionId]);
 
   async function generate() {
+    if (!occasionText) return setError("Pick or describe an occasion first.");
+    const trimmedCode = code.trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,12}$/.test(trimmedCode)) {
+      return setError("The code must be 3-12 letters/numbers.");
+    }
+    if (discountType === "topping" && !featuredItem) {
+      return setError("Pick which pizza the free topping applies to.");
+    }
     setBusy(true);
     setError("");
     setNotice("");
@@ -261,52 +255,60 @@ function Composer({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           occasion: occasionText,
-          offer: offerText || "none",
+          code: trimmedCode,
+          discount:
+            discountType === "percent"
+              ? { type: "percent", value: percentValue }
+              : { type: "topping", featuredItemName: featuredItem?.name },
           menu: pizzas.map((p) => ({ name: p.name, priceRupees: p.pricePaise / 100, isVeg: p.isVeg })),
           facts,
         }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Could not draft the promo.");
+      if (!response.ok) throw new Error(payload.error || "Could not write the banner.");
       setDraft(payload.promo);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not draft the promo — try again.");
+      setError(err instanceof Error ? err.message : "Could not write the banner — try again.");
     } finally {
       setBusy(false);
     }
   }
 
-  async function copyMessage() {
-    if (!draft) return;
-    try {
-      await navigator.clipboard.writeText(draft.message);
-      setNotice("Message copied — paste it into WhatsApp Business.");
-    } catch {
-      setError("Could not access the clipboard — select and copy the text manually.");
-    }
-  }
-
   async function publish() {
     if (!draft) return;
+    const trimmedCode = code.trim().toUpperCase();
     setPublishing(true);
     setError("");
     setNotice("");
-    const headline = draft.headline || "This week at SliceMatic";
-    const message = await publishPromo({ headline, message: draft.message });
+    const message = await createPromoCode({
+      code: trimmedCode,
+      headline: draft.headline || occasionName || "This week at SliceMatic",
+      message: draft.message,
+      discountType,
+      discountValue: discountType === "percent" ? percentValue : 0,
+      featuredItemId: discountType === "topping" ? featuredItemId : null,
+      startsAt,
+      endsAt,
+    });
     setPublishing(false);
     if (message) {
       setError(message);
       return;
     }
-    onPublished({ headline, message: draft.message, publishedAt: new Date().toISOString() });
-    setNotice("Published — customers now see this banner on the ordering page.");
+    setNotice(`Live — customers can enter ${trimmedCode} at checkout for this window.`);
+    setDraft(null);
+    setCode("");
+    onCreated();
   }
 
-  const canGenerate = Boolean(occasionText) && (offerId !== "custom" || Boolean(customOffer.trim()));
+  const canGenerate =
+    Boolean(occasionText) &&
+    /^[A-Z0-9]{3,12}$/.test(code.trim().toUpperCase()) &&
+    (discountType !== "topping" || Boolean(featuredItem));
 
   return (
     <div className="card" style={{ marginTop: 16 }}>
-      <h2>Draft a broadcast</h2>
+      <h2>Create a promo code</h2>
 
       <p className="page-sub" style={{ fontWeight: 600, marginBottom: 6 }}>
         1. Pick the occasion
@@ -343,45 +345,92 @@ function Composer({
         selected && (
           <p className="page-sub" style={{ marginTop: 8 }}>
             {selected.dateLabel}
-            {selected.approxDate && " (approximate — confirm the exact date before sending)"} ·{" "}
-            {selected.angle}
+            {selected.approxDate && " (approximate — confirm the exact date)"} · {selected.angle}
             {selected.vegLean && " · Veg-leaning: only veg items will be featured."}
           </p>
         )
       )}
 
       <p className="page-sub" style={{ fontWeight: 600, margin: "16px 0 6px" }}>
-        2. Pick the offer (optional)
+        2. Set the discount
       </p>
       <select
         className="select"
-        style={{ maxWidth: 480 }}
-        value={offerId}
-        onChange={(e) => setOfferId(e.target.value as (typeof OFFERS)[number]["id"])}
+        style={{ maxWidth: 320 }}
+        value={discountType}
+        onChange={(e) => setDiscountType(e.target.value as PromoDiscountType)}
       >
-        {OFFERS.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.label}
-          </option>
-        ))}
+        <option value="percent">Percent off the whole order</option>
+        <option value="topping">Free topping of choice on one pizza</option>
       </select>
-      {offerId === "custom" && (
-        <input
-          type="text"
-          style={{ marginTop: 10, maxWidth: 480 }}
-          placeholder="e.g. Free cold drink with every large pizza on Sunday"
-          value={customOffer}
-          maxLength={140}
-          onChange={(e) => setCustomOffer(e.target.value)}
-        />
+      {discountType === "percent" ? (
+        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+          <input
+            type="number"
+            style={{ maxWidth: 100 }}
+            min={PROMO_PERCENT_MIN}
+            max={PROMO_PERCENT_MAX}
+            value={percentValue}
+            onChange={(e) =>
+              setPercentValue(Math.min(PROMO_PERCENT_MAX, Math.max(PROMO_PERCENT_MIN, Number(e.target.value) || 0)))
+            }
+          />
+          <span className="page-sub" style={{ margin: 0 }}>
+            % off (between {PROMO_PERCENT_MIN} and {PROMO_PERCENT_MAX})
+          </span>
+        </div>
+      ) : (
+        <select
+          className="select"
+          style={{ marginTop: 10, maxWidth: 320 }}
+          value={featuredItemId}
+          onChange={(e) => setFeaturedItemId(e.target.value)}
+        >
+          <option value="">Choose a pizza…</option>
+          {pizzas.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
       )}
       <p className="page-sub" style={{ marginTop: 8, fontSize: 12.5 }}>
-        Offers here are marketing copy only — billing still applies just the standing 10% discount
-        on 5+ pizzas. Anything else you promise, you honour at the counter.
+        This is the only discount the banner will describe — the checkout applies it automatically
+        whenever the code below is entered and its window is open.
       </p>
 
-      <button className="btn" style={{ marginTop: 14 }} onClick={generate} disabled={busy || !canGenerate}>
-        {busy ? "Writing…" : draft ? "Write it again" : "Write the broadcast"}
+      <p className="page-sub" style={{ fontWeight: 600, margin: "16px 0 6px" }}>
+        3. Code and schedule
+      </p>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end" }}>
+        <label className="field" style={{ margin: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Promo code</span>
+          <input
+            type="text"
+            style={{ maxWidth: 160, textTransform: "uppercase" }}
+            value={code}
+            maxLength={12}
+            placeholder="e.g. HOLI10"
+            onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12))}
+          />
+        </label>
+        <label className="field" style={{ margin: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Starts</span>
+          <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
+        </label>
+        <label className="field" style={{ margin: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Ends</span>
+          <input
+            type="datetime-local"
+            value={endsAt}
+            min={startsAt}
+            onChange={(e) => setEndsAt(e.target.value)}
+          />
+        </label>
+      </div>
+
+      <button className="btn" style={{ marginTop: 16 }} onClick={generate} disabled={busy || !canGenerate}>
+        {busy ? "Writing…" : draft ? "Write it again" : "Write the banner"}
       </button>
 
       {error && <p className="error-text" style={{ marginTop: 10 }}>{error}</p>}
@@ -389,11 +438,11 @@ function Composer({
       {draft && (
         <div style={{ marginTop: 18 }}>
           <p className="page-sub" style={{ fontWeight: 600, marginBottom: 6 }}>
-            3. Review, copy, publish
+            4. Review and publish
           </p>
-          <div className="wa-preview">
-            {draft.headline && <strong>{draft.headline}{"\n"}</strong>}
-            {draft.message}
+          <div className="promo-preview">
+            {draft.headline && <strong>🎉 {draft.headline}</strong>}
+            <div className="promo-text">{draft.message}</div>
           </div>
           {draft.whyThisWorks && (
             <p className="page-sub" style={{ marginTop: 8, maxWidth: 520 }}>
@@ -402,16 +451,95 @@ function Composer({
             </p>
           )}
           {notice && <p className="banner banner-ok" style={{ marginTop: 10 }}>{notice}</p>}
-          <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-            <button className="btn btn-small" onClick={copyMessage}>
-              Copy for WhatsApp
-            </button>
-            <button className="btn btn-small btn-secondary" onClick={publish} disabled={publishing}>
-              {publishing ? "Publishing…" : "Publish on the ordering page"}
-            </button>
-          </div>
+          <button className="btn btn-small btn-secondary" style={{ marginTop: 10 }} onClick={publish} disabled={publishing}>
+            {publishing ? "Publishing…" : "Publish this code"}
+          </button>
         </div>
       )}
+      {!draft && notice && <p className="banner banner-ok" style={{ marginTop: 14 }}>{notice}</p>}
+    </div>
+  );
+}
+
+// ------------------------------------------------------- codes & history
+
+function PromoCodesTable({ stats, onChanged }: { stats: PromoCodeStats[]; onChanged: () => void }) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  async function deactivate(id: string) {
+    setBusyId(id);
+    setError("");
+    const message = await deactivatePromoCode(id);
+    setBusyId(null);
+    if (message) {
+      setError(message);
+      return;
+    }
+    onChanged();
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <h2>Promo codes</h2>
+      <p className="page-sub">
+        Every code you&apos;ve created — live, scheduled or ended — with the revenue it brought in
+        and the discount it actually gave, computed from paid orders that redeemed it.
+      </p>
+      {error && <p className="error-text">{error}</p>}
+      <div className="table-scroll">
+        <table className="orders-table">
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Headline</th>
+              <th>Window</th>
+              <th>Status</th>
+              <th>Redemptions</th>
+              <th>Revenue</th>
+              <th>Discount given</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {stats.length === 0 && (
+              <tr>
+                <td colSpan={8} style={{ color: "var(--muted)" }}>
+                  No promo codes yet — create one above.
+                </td>
+              </tr>
+            )}
+            {stats.map((s) => (
+              <tr key={s.id}>
+                <td>
+                  <code>{s.code}</code>
+                </td>
+                <td>{s.headline}</td>
+                <td>
+                  {formatDateTime(s.startsAt)} – {formatDateTime(s.endsAt)}
+                </td>
+                <td>
+                  <span className={`promo-status promo-status-${s.status}`}>{s.status}</span>
+                </td>
+                <td>{s.redemptions}</td>
+                <td>{formatPaise(s.revenuePaise)}</td>
+                <td>{formatPaise(s.discountPaise)}</td>
+                <td>
+                  {s.status !== "expired" && (
+                    <button
+                      className="btn btn-small btn-secondary"
+                      onClick={() => deactivate(s.id)}
+                      disabled={busyId === s.id}
+                    >
+                      {busyId === s.id ? "…" : s.status === "scheduled" ? "Cancel" : "End now"}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

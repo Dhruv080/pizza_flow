@@ -3,7 +3,14 @@
 //   - Demo mode (no env vars): bundled menu + localStorage orders
 // Pages call these functions and never know which backend is live.
 
-import { computeBill } from "./billing";
+import {
+  computeBill,
+  PROMO_DISCOUNT_TYPES,
+  PROMO_PERCENT_MAX,
+  PROMO_PERCENT_MIN,
+  type AppliedPromo,
+  type PromoDiscountType,
+} from "./billing";
 import { DEFAULT_MODEL, isValidModelSlug } from "./aiCatalog";
 import { DEMO_MENU } from "./demoMenu";
 import { rupeesToPaise, paiseToRupees } from "./format";
@@ -259,9 +266,10 @@ function loadDemoOrderRecords(): DemoOrderRecord[] {
   if (typeof localStorage === "undefined") return [];
   try {
     const raw = JSON.parse(localStorage.getItem(DEMO_ORDERS_KEY) ?? "[]");
-    // Legacy entries predate the placed/paid lifecycle — under the old
-    // one-shot flow every stored order was already fully paid.
-    return raw.map((o: any) => ({ status: "paid", ...o }));
+    // Legacy entries predate the placed/paid lifecycle (and promo codes) —
+    // under the old one-shot flow every stored order was already fully paid,
+    // and no order had a promo applied before the feature existed.
+    return raw.map((o: any) => ({ status: "paid", promoCode: null, promoDiscountPaise: 0, ...o }));
   } catch {
     return [];
   }
@@ -279,8 +287,9 @@ export async function confirmOrder(params: {
   sessionStartedAt: string;
   cart: CartLine[]; // full cart so far (confirmed + newLines) — bill totals reflect this
   newLines: CartLine[]; // just the not-yet-persisted lines to insert this call
+  promo?: AppliedPromo | null; // redeemed promo code, if any
 }): Promise<string> {
-  const bill = computeBill(params.cart);
+  const bill = computeBill(params.cart, params.promo);
 
   if (isDemoMode) {
     const records = loadDemoOrderRecords();
@@ -292,6 +301,8 @@ export async function confirmOrder(params: {
       existing.lines = params.cart.map(lineToOrderLine);
       existing.subtotalPaise = bill.subtotalPaise;
       existing.discountPaise = bill.discountPaise;
+      existing.promoDiscountPaise = bill.promoDiscountPaise;
+      existing.promoCode = bill.promoCode;
       existing.gstPaise = bill.gstPaise;
       existing.totalPaise = bill.totalPaise;
       saveDemoOrderRecords(records);
@@ -308,6 +319,8 @@ export async function confirmOrder(params: {
       lines: params.cart.map(lineToOrderLine),
       subtotalPaise: bill.subtotalPaise,
       discountPaise: bill.discountPaise,
+      promoDiscountPaise: bill.promoDiscountPaise,
+      promoCode: bill.promoCode,
       gstPaise: bill.gstPaise,
       totalPaise: bill.totalPaise,
       paymentMode: null,
@@ -324,6 +337,8 @@ export async function confirmOrder(params: {
     table_number: params.tableNumber,
     subtotal: paiseToRupees(bill.subtotalPaise),
     discount: paiseToRupees(bill.discountPaise),
+    promo_code: bill.promoCode,
+    promo_discount: paiseToRupees(bill.promoDiscountPaise),
     gst: paiseToRupees(bill.gstPaise),
     total: paiseToRupees(bill.totalPaise),
   };
@@ -390,6 +405,7 @@ export async function finishAndPayOrder(params: {
   cart: CartLine[];
   newLines: CartLine[]; // any still-unconfirmed lines — confirmed here if present
   paymentMode: PaymentMode;
+  promo?: AppliedPromo | null;
 }): Promise<CompletedOrder> {
   const orderId =
     !params.orderId || params.newLines.length > 0
@@ -401,10 +417,11 @@ export async function finishAndPayOrder(params: {
           sessionStartedAt: params.sessionStartedAt,
           cart: params.cart,
           newLines: params.newLines,
+          promo: params.promo,
         })
       : params.orderId;
 
-  const bill = computeBill(params.cart);
+  const bill = computeBill(params.cart, params.promo);
   const order: CompletedOrder = {
     id: orderId,
     createdAt: new Date().toISOString(),
@@ -415,6 +432,8 @@ export async function finishAndPayOrder(params: {
     lines: params.cart.map(lineToOrderLine),
     subtotalPaise: bill.subtotalPaise,
     discountPaise: bill.discountPaise,
+    promoDiscountPaise: bill.promoDiscountPaise,
+    promoCode: bill.promoCode,
     gstPaise: bill.gstPaise,
     totalPaise: bill.totalPaise,
     paymentMode: params.paymentMode,
@@ -428,6 +447,8 @@ export async function finishAndPayOrder(params: {
       existing.status = "paid";
       existing.subtotalPaise = bill.subtotalPaise;
       existing.discountPaise = bill.discountPaise;
+      existing.promoDiscountPaise = bill.promoDiscountPaise;
+      existing.promoCode = bill.promoCode;
       existing.gstPaise = bill.gstPaise;
       existing.totalPaise = bill.totalPaise;
       saveDemoOrderRecords(records);
@@ -440,6 +461,8 @@ export async function finishAndPayOrder(params: {
     status: "paid",
     subtotal: paiseToRupees(bill.subtotalPaise),
     discount: paiseToRupees(bill.discountPaise),
+    promo_code: bill.promoCode,
+    promo_discount: paiseToRupees(bill.promoDiscountPaise),
     gst: paiseToRupees(bill.gstPaise),
     total: paiseToRupees(bill.totalPaise),
   });
@@ -480,7 +503,7 @@ export async function getOrders(): Promise<CompletedOrder[]> {
     .from("orders")
     .select(
       `id, created_at, session_started_at, customer_name, phone, table_number,
-       subtotal, discount, gst, total, payment_mode,
+       subtotal, discount, promo_code, promo_discount, gst, total, payment_mode,
        order_items ( base_name, pizza_name, quantity, unit_price,
          order_item_toppings ( topping_name ) )`
     )
@@ -505,6 +528,8 @@ export async function getOrders(): Promise<CompletedOrder[]> {
     })),
     subtotalPaise: rupeesToPaise(row.subtotal),
     discountPaise: rupeesToPaise(row.discount),
+    promoDiscountPaise: rupeesToPaise(row.promo_discount ?? 0),
+    promoCode: row.promo_code ?? null,
     gstPaise: rupeesToPaise(row.gst),
     totalPaise: rupeesToPaise(row.total),
     paymentMode: row.payment_mode,
@@ -629,76 +654,193 @@ export async function getBestSellerPizzaIds(): Promise<string[]> {
   return data.map((row: { pizza_id: string }) => row.pizza_id);
 }
 
-// --------------------------------------------------------- published promo
-// The promo planner (Admin → Promos) can publish one AI-drafted broadcast as a
-// banner on the customer ordering page. What is stored is plain owner-approved
-// text — publishing/removing it is an explicit admin act, billing is never
-// affected, and the banner keeps showing even if the AI kill switch is later
-// turned off (it is content, not a live AI call). Stored as one JSON settings
-// row so it needs no schema change and no redeploy.
+// ------------------------------------------------------------ promo codes
+// Admin → Promos creates a code the customer types in at checkout (or picks
+// from "see available codes"). A code is live purely by date math — no
+// separate publish/unpublish step and no cron job: it simply stops being
+// offered once `endsAt` passes. Rows are never deleted once their window has
+// started, so redemption history (revenue vs. discount given per code) stays
+// queryable long after a promo has ended.
 
-export interface PublishedPromo {
-  headline: string;
-  message: string;
-  publishedAt: string;
+export interface PromoCode {
+  id: string;
+  code: string;
+  headline: string; // shown on the ordering-page banner
+  message: string; // shown on the banner and in the "available codes" list
+  discountType: PromoDiscountType;
+  discountValue: number; // percent (1-50); unused for "topping"
+  featuredItemId: string | null; // pizza id the "topping" discount targets
+  startsAt: string; // ISO
+  endsAt: string; // ISO
+  createdAt: string;
 }
 
-const PROMO_SETTINGS_KEY = "promo_current";
-const DEMO_PROMO_KEY = "pizzaflow_demo_promo";
+const DEMO_PROMO_CODES_KEY = "pizzaflow_demo_promo_codes";
 
-function parsePromo(raw: string | null | undefined): PublishedPromo | null {
-  if (!raw) return null;
+function loadDemoPromoCodes(): PromoCode[] {
+  if (typeof localStorage === "undefined") return [];
   try {
-    const promo = JSON.parse(raw);
-    if (typeof promo?.headline === "string" && typeof promo?.message === "string" && promo.headline.trim()) {
-      return { headline: promo.headline, message: promo.message, publishedAt: promo.publishedAt ?? "" };
-    }
+    return JSON.parse(localStorage.getItem(DEMO_PROMO_CODES_KEY) ?? "[]");
   } catch {
-    /* corrupt row — treat as no promo */
+    return [];
   }
+}
+
+function saveDemoPromoCodes(codes: PromoCode[]): void {
+  localStorage.setItem(DEMO_PROMO_CODES_KEY, JSON.stringify(codes));
+}
+
+/** Every promo code ever created, newest first — feeds both the live/scheduled list and the history table. */
+export async function getPromoCodes(): Promise<PromoCode[]> {
+  if (isDemoMode) {
+    return [...loadDemoPromoCodes()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+  const { data, error } = await getSupabase()
+    .from("promo_codes")
+    .select(
+      "id, code, headline, message, discount_type, discount_value, featured_item_id, starts_at, ends_at, created_at"
+    )
+    .order("created_at", { ascending: false });
+  if (error) return []; // never blocks ordering — codes just won't show
+  return (data ?? []).map(
+    (row: any): PromoCode => ({
+      id: row.id,
+      code: row.code,
+      headline: row.headline,
+      message: row.message,
+      discountType: row.discount_type,
+      discountValue: Number(row.discount_value),
+      featuredItemId: row.featured_item_id,
+      startsAt: row.starts_at,
+      endsAt: row.ends_at,
+      createdAt: row.created_at,
+    })
+  );
+}
+
+/** Codes whose window includes right now — what the ordering page may offer and redeem. */
+export async function getActivePromoCodes(): Promise<PromoCode[]> {
+  const now = Date.now();
+  return (await getPromoCodes()).filter(
+    (c) => new Date(c.startsAt).getTime() <= now && new Date(c.endsAt).getTime() >= now
+  );
+}
+
+export interface PromoCodeInput {
+  code: string;
+  headline: string;
+  message: string;
+  discountType: PromoDiscountType;
+  discountValue: number;
+  featuredItemId: string | null;
+  startsAt: string; // anything `new Date()` accepts, e.g. a datetime-local value
+  endsAt: string;
+}
+
+function validatePromoCodeInput(code: string, headline: string, message: string, input: PromoCodeInput): string | null {
+  if (!/^[A-Z0-9]{3,12}$/.test(code)) return "The code must be 3-12 letters/numbers (A-Z, 0-9) only.";
+  if (!headline) return "The banner needs a headline.";
+  if (headline.length > 80) return "The headline must be at most 80 characters.";
+  if (!message) return "The banner needs a message.";
+  if (message.length > 600) return "The message must be at most 600 characters.";
+  if (!(PROMO_DISCOUNT_TYPES as readonly string[]).includes(input.discountType)) return "Invalid discount type.";
+  if (input.discountType === "percent") {
+    if (!(input.discountValue >= PROMO_PERCENT_MIN && input.discountValue <= PROMO_PERCENT_MAX)) {
+      return `Percent off must be between ${PROMO_PERCENT_MIN} and ${PROMO_PERCENT_MAX}.`;
+    }
+  } else if (!input.featuredItemId) {
+    return "Pick which pizza the free topping applies to.";
+  }
+  const start = new Date(input.startsAt).getTime();
+  const end = new Date(input.endsAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return "Pick a valid start and end date/time.";
+  if (end <= start) return "The end date/time must be after the start.";
   return null;
 }
 
-/** The promo currently on the ordering page, or null. Never throws — a broken promo must not block ordering. */
-export async function getPublishedPromo(): Promise<PublishedPromo | null> {
-  if (isDemoMode) {
-    if (typeof localStorage === "undefined") return null;
-    return parsePromo(localStorage.getItem(DEMO_PROMO_KEY));
-  }
-  const { data, error } = await getSupabase()
-    .from("settings")
-    .select("value")
-    .eq("key", PROMO_SETTINGS_KEY)
-    .maybeSingle();
-  if (error) return null;
-  return parsePromo(data?.value);
-}
+export async function createPromoCode(input: PromoCodeInput): Promise<string | null> {
+  const code = input.code.trim().toUpperCase();
+  const headline = input.headline.trim();
+  const message = input.message.trim();
+  const validationError = validatePromoCodeInput(code, headline, message, input);
+  if (validationError) return validationError;
 
-export async function publishPromo(promo: { headline: string; message: string }): Promise<string | null> {
-  const headline = promo.headline.trim();
-  const message = promo.message.trim();
-  if (!headline || !message) return "The promo needs both a headline and a message.";
-  if (headline.length > 80) return "The headline must be at most 80 characters.";
-  if (message.length > 600) return "The message must be at most 600 characters.";
+  const discountValue = input.discountType === "percent" ? input.discountValue : 0;
+  const featuredItemId = input.discountType === "topping" ? input.featuredItemId : null;
+  const startsAt = new Date(input.startsAt).toISOString();
+  const endsAt = new Date(input.endsAt).toISOString();
 
-  const record: PublishedPromo = { headline, message, publishedAt: new Date().toISOString() };
   if (isDemoMode) {
-    if (typeof localStorage !== "undefined") localStorage.setItem(DEMO_PROMO_KEY, JSON.stringify(record));
+    const codes = loadDemoPromoCodes();
+    if (codes.some((c) => c.code === code)) return "That code is already in use — pick another.";
+    codes.push({
+      id: generateUUID(),
+      code,
+      headline,
+      message,
+      discountType: input.discountType,
+      discountValue,
+      featuredItemId,
+      startsAt,
+      endsAt,
+      createdAt: new Date().toISOString(),
+    });
+    saveDemoPromoCodes(codes);
     return null;
   }
-  const { error } = await getSupabase()
-    .from("settings")
-    .upsert({ key: PROMO_SETTINGS_KEY, value: JSON.stringify(record) });
-  return error ? error.message : null;
+
+  const { error } = await getSupabase().from("promo_codes").insert({
+    code,
+    headline,
+    message,
+    discount_type: input.discountType,
+    discount_value: discountValue,
+    featured_item_id: featuredItemId,
+    starts_at: startsAt,
+    ends_at: endsAt,
+  });
+  if (!error) return null;
+  if (error.code === "23505") return "That code is already in use — pick another.";
+  return error.message;
 }
 
-export async function clearPublishedPromo(): Promise<string | null> {
+/**
+ * Ends a code's window right now instead of deleting it, so redemption history
+ * survives. A code that hasn't started yet has no history to preserve, so it is
+ * removed outright (an `ends_at` before `starts_at` would violate the schema's
+ * own CHECK constraint).
+ */
+export async function deactivatePromoCode(id: string): Promise<string | null> {
+  const now = new Date();
+  const codes = await getPromoCodes();
+  const code = codes.find((c) => c.id === id);
+  if (!code) return "Promo code not found.";
+  const notYetStarted = new Date(code.startsAt) > now;
+
   if (isDemoMode) {
-    if (typeof localStorage !== "undefined") localStorage.removeItem(DEMO_PROMO_KEY);
+    if (notYetStarted) {
+      saveDemoPromoCodes(loadDemoPromoCodes().filter((c) => c.id !== id));
+    } else if (new Date(code.endsAt) > now) {
+      const all = loadDemoPromoCodes();
+      const target = all.find((c) => c.id === id);
+      if (target) target.endsAt = now.toISOString();
+      saveDemoPromoCodes(all);
+    }
     return null;
   }
-  const { error } = await getSupabase().from("settings").delete().eq("key", PROMO_SETTINGS_KEY);
-  return error ? error.message : null;
+
+  if (notYetStarted) {
+    const { error } = await getSupabase().from("promo_codes").delete().eq("id", id);
+    return error ? error.message : null;
+  }
+  if (new Date(code.endsAt) > now) {
+    const { error } = await getSupabase()
+      .from("promo_codes")
+      .update({ ends_at: now.toISOString() })
+      .eq("id", id);
+    return error ? error.message : null;
+  }
+  return null; // already expired — nothing to do
 }
 
 // ---------------------------------------------------------------- settings

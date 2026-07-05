@@ -77,7 +77,6 @@ export async function POST(request: Request) {
         ],
         rootCause: String(t?.rootCause ?? "").trim().slice(0, 400),
         suggestedAction: String(t?.suggestedAction ?? "").trim().slice(0, 400),
-        draftReply: String(t?.draftReply ?? "").trim().slice(0, 500),
       }))
       // A theme with no verifiable supporting entry is unsubstantiated — drop it.
       .filter((t) => t.title && t.entryIndexes.length > 0);

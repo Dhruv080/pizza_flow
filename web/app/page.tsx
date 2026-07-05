@@ -5,7 +5,7 @@
 // an optional shortcut that fills the same validated cart.
 
 import { useEffect, useMemo, useState } from "react";
-import { computeBill, unitPricePaise, DISCOUNT_THRESHOLD, DISCOUNT_RATE } from "@/lib/billing";
+import { computeBill, unitPricePaise, DISCOUNT_THRESHOLD, DISCOUNT_RATE, type AppliedPromo } from "@/lib/billing";
 import { formatPaise } from "@/lib/format";
 import {
   confirmOrder,
@@ -14,12 +14,12 @@ import {
   getOutletSettings,
   getEffectiveAiFeatures,
   getBestSellerPizzaIds,
-  getPublishedPromo,
+  getActivePromoCodes,
   submitOrderFeedback,
   isDemoMode,
   DEFAULT_OUTLET,
   type OutletSettings,
-  type PublishedPromo,
+  type PromoCode,
 } from "@/lib/data";
 import {
   validateName,
@@ -37,7 +37,7 @@ export default function OrderPage() {
   const [assistantEnabled, setAssistantEnabled] = useState(true);
   const [upsellEnabled, setUpsellEnabled] = useState(true);
   const [bestSellerIds, setBestSellerIds] = useState<string[]>([]);
-  const [promo, setPromo] = useState<PublishedPromo | null>(null);
+  const [activeCodes, setActiveCodes] = useState<PromoCode[]>([]);
   // The waiter sets the table and hands the tablet over; a completed order
   // returns here so the next customer starts from a fresh table selection.
   const [tableNumber, setTableNumber] = useState<number | null>(null);
@@ -60,9 +60,9 @@ export default function OrderPage() {
     getBestSellerPizzaIds()
       .then(setBestSellerIds)
       .catch(() => {});
-    // Owner-published promo banner — best effort, never blocks ordering.
-    getPublishedPromo()
-      .then(setPromo)
+    // Currently-redeemable promo codes — best effort, never blocks ordering.
+    getActivePromoCodes()
+      .then(setActiveCodes)
       .catch(() => {});
   }, []);
 
@@ -97,7 +97,7 @@ export default function OrderPage() {
       assistantEnabled={assistantEnabled}
       upsellEnabled={upsellEnabled}
       bestSellerIds={bestSellerIds}
-      promo={promo}
+      activeCodes={activeCodes}
       tableNumber={tableNumber}
       sessionStartedAt={sessionStartedAt}
       onNewOrder={() => {
@@ -153,7 +153,7 @@ function OrderFlow({
   assistantEnabled,
   upsellEnabled,
   bestSellerIds,
-  promo,
+  activeCodes,
   tableNumber,
   sessionStartedAt,
   onNewOrder,
@@ -163,7 +163,7 @@ function OrderFlow({
   assistantEnabled: boolean;
   upsellEnabled: boolean;
   bestSellerIds: string[];
-  promo: PublishedPromo | null;
+  activeCodes: PromoCode[];
   tableNumber: number;
   sessionStartedAt: string;
   onNewOrder: () => void;
@@ -185,6 +185,11 @@ function OrderFlow({
   // cart + payment
   const [cart, setCart] = useState<CartLine[]>([]);
   const [paymentMode, setPaymentMode] = useState<PaymentMode | null>(null);
+  // promo code redemption
+  const [appliedCode, setAppliedCode] = useState<PromoCode | null>(null);
+  const [promoInput, setPromoInput] = useState("");
+  const [promoError, setPromoError] = useState("");
+  const [showCodes, setShowCodes] = useState(false);
   const [placeError, setPlaceError] = useState("");
   const [placing, setPlacing] = useState(false);
   const [receipt, setReceipt] = useState<CompletedOrder | null>(null);
@@ -196,8 +201,29 @@ function OrderFlow({
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState("");
 
-  const bill = useMemo(() => computeBill(cart), [cart]);
+  const appliedPromo: AppliedPromo | null = appliedCode
+    ? {
+        code: appliedCode.code,
+        discountType: appliedCode.discountType,
+        discountValue: appliedCode.discountValue,
+        featuredItemId: appliedCode.featuredItemId,
+      }
+    : null;
+  const bill = useMemo(() => computeBill(cart, appliedPromo), [cart, appliedPromo]);
   const pendingLines = cart.slice(confirmedCount);
+
+  function applyPromoCode() {
+    const wanted = promoInput.trim().toUpperCase();
+    if (!wanted) return;
+    const match = activeCodes.find((c) => c.code === wanted);
+    if (!match) {
+      setPromoError("That code is invalid or has expired.");
+      return;
+    }
+    setAppliedCode(match);
+    setPromoInput("");
+    setPromoError("");
+  }
 
   const selectedBase = menu.bases.find((b) => b.id === baseId);
   const selectedPizza = menu.pizzas.find((p) => p.id === pizzaId);
@@ -304,6 +330,7 @@ function OrderFlow({
         sessionStartedAt,
         cart,
         newLines: pendingLines,
+        promo: appliedPromo,
       });
       setOrderId(id);
       setConfirmedCount(cart.length);
@@ -342,6 +369,7 @@ function OrderFlow({
         cart,
         newLines: cart.slice(confirmedCount),
         paymentMode,
+        promo: appliedPromo,
       });
       setReceipt(order);
     } catch (error) {
@@ -368,10 +396,10 @@ function OrderFlow({
           orders are stored in this browser only.
         </div>
       )}
-      {promo && (
+      {activeCodes[0] && (
         <div className="banner banner-promo">
-          <strong>🎉 {promo.headline}</strong>
-          <div className="promo-text">{promo.message}</div>
+          <strong>🎉 {activeCodes[0].headline}</strong>
+          <div className="promo-text">{activeCodes[0].message}</div>
         </div>
       )}
 
@@ -541,6 +569,27 @@ function OrderFlow({
                       {line.base.name}
                       {line.toppings.length > 0 && ` · ${line.toppings.map((t) => t.name).join(", ")}`}
                     </small>
+                    <details className="line-details">
+                      <summary />
+                      <div className="line-breakdown-row">
+                        <span>{line.pizza.name} (pizza)</span>
+                        <span>{formatPaise(line.pizza.pricePaise)}</span>
+                      </div>
+                      <div className="line-breakdown-row">
+                        <span>{line.base.name} (base)</span>
+                        <span>{formatPaise(line.base.pricePaise)}</span>
+                      </div>
+                      {line.toppings.map((t) => (
+                        <div className="line-breakdown-row" key={t.id}>
+                          <span>{t.name} (topping)</span>
+                          <span>{formatPaise(t.pricePaise)}</span>
+                        </div>
+                      ))}
+                      <div className="line-breakdown-row line-total">
+                        <span>Unit price × {line.quantity}</span>
+                        <span>{formatPaise(unitPricePaise(line) * line.quantity)}</span>
+                      </div>
+                    </details>
                     {confirmed ? (
                       <span className="line-confirmed-tag">✓ Confirmed · Qty {line.quantity}</span>
                     ) : (
@@ -590,17 +639,79 @@ function OrderFlow({
                     }
                   />
                 )}
+
+                {appliedCode ? (
+                  <div className="promo-applied">
+                    <span>
+                      Code <code>{appliedCode.code}</code> applied
+                    </span>
+                    <button onClick={() => setAppliedCode(null)}>remove</button>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 12 }}>
+                    <div className="promo-code-row">
+                      <input
+                        type="text"
+                        placeholder="Promo code"
+                        value={promoInput}
+                        maxLength={12}
+                        onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                        onKeyDown={(e) => e.key === "Enter" && applyPromoCode()}
+                      />
+                      <button className="btn btn-small" onClick={applyPromoCode} disabled={!promoInput.trim()}>
+                        Apply
+                      </button>
+                    </div>
+                    {promoError && <p className="error-text">{promoError}</p>}
+                    {activeCodes.length > 0 && (
+                      <>
+                        <button className="promo-codes-toggle" onClick={() => setShowCodes((s) => !s)}>
+                          {showCodes ? "Hide" : "See"} available codes ({activeCodes.length})
+                        </button>
+                        {showCodes && (
+                          <div className="promo-code-list">
+                            {activeCodes.map((c) => (
+                              <div className="promo-code-item" key={c.id}>
+                                <div>
+                                  <code>{c.code}</code>
+                                  <small>{c.headline}</small>
+                                </div>
+                                <button
+                                  className="btn btn-small btn-secondary"
+                                  onClick={() => {
+                                    setAppliedCode(c);
+                                    setShowCodes(false);
+                                    setPromoError("");
+                                  }}
+                                >
+                                  Use this code
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
                 <div className="bill-rows" style={{ marginTop: 12 }}>
                   <div className="bill-row">
                     <span>Subtotal ({bill.totalQuantity} pizzas)</span>
                     <span>{formatPaise(bill.subtotalPaise)}</span>
                   </div>
-                  {bill.discountPaise > 0 ? (
+                  {bill.promoDiscountPaise > 0 && (
+                    <div className="bill-row discount">
+                      <span>Promo ({bill.promoCode})</span>
+                      <span>-{formatPaise(bill.promoDiscountPaise)}</span>
+                    </div>
+                  )}
+                  {bill.bulkDiscountPaise > 0 ? (
                     <div className="bill-row discount">
                       <span>
                         Bulk discount ({DISCOUNT_RATE * 100}% for {DISCOUNT_THRESHOLD} or more)
                       </span>
-                      <span>-{formatPaise(bill.discountPaise)}</span>
+                      <span>-{formatPaise(bill.bulkDiscountPaise)}</span>
                     </div>
                   ) : (
                     <div className="bill-row muted">
@@ -898,10 +1009,18 @@ function Receipt({
         <p>
           Subtotal <span style={{ float: "right" }}>{formatPaise(order.subtotalPaise)}</span>
         </p>
-        {order.discountPaise > 0 && (
+        {order.promoDiscountPaise > 0 && (
+          <p>
+            Promo ({order.promoCode}){" "}
+            <span style={{ float: "right" }}>-{formatPaise(order.promoDiscountPaise)}</span>
+          </p>
+        )}
+        {order.discountPaise - order.promoDiscountPaise > 0 && (
           <p>
             Bulk discount (10%){" "}
-            <span style={{ float: "right" }}>-{formatPaise(order.discountPaise)}</span>
+            <span style={{ float: "right" }}>
+              -{formatPaise(order.discountPaise - order.promoDiscountPaise)}
+            </span>
           </p>
         )}
         <p>

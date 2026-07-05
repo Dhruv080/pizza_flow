@@ -194,7 +194,6 @@ function FeedbackAiPanel({ feedback, summary }: { feedback: OrderFeedbackRecord[
   const [analysis, setAnalysis] = useState<FeedbackAnalysis | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
   useEffect(() => {
     getEffectiveAiFeatures()
@@ -233,23 +232,13 @@ function FeedbackAiPanel({ feedback, summary }: { feedback: OrderFeedbackRecord[
     }
   }
 
-  async function copyReply(text: string, idx: number) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedIdx(idx);
-      setTimeout(() => setCopiedIdx(null), 2000);
-    } catch {
-      setError("Could not access the clipboard — select and copy the text manually.");
-    }
-  }
-
   return (
     <div className="card" style={{ marginBottom: 16 }}>
       <h2>What the feedback is telling you</h2>
       <p className="page-sub">
-        Groups the {dataset.length} most recent submissions into themes — what to fix, why it
-        probably happens, and a reply you can send. Counts and quotes are verified against the
-        actual entries.
+        Groups the {dataset.length} most recent submissions into themes — what to fix and why it
+        probably happens. For your eyes only; nothing here is sent to any customer. Counts and
+        quotes are verified against the actual entries.
       </p>
 
       {!analysis && (
@@ -292,16 +281,6 @@ function FeedbackAiPanel({ feedback, summary }: { feedback: OrderFeedbackRecord[
                   <p className="page-sub" style={{ margin: "4px 0" }}>
                     <strong>Try this week:</strong> {theme.suggestedAction}
                   </p>
-                )}
-                {theme.draftReply && (
-                  <div style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 6 }}>
-                    <div className="wa-preview" style={{ flex: 1, padding: "10px 12px" }}>
-                      {theme.draftReply}
-                    </div>
-                    <button className="btn btn-small btn-secondary" onClick={() => copyReply(theme.draftReply, idx)}>
-                      {copiedIdx === idx ? "Copied!" : "Copy reply"}
-                    </button>
-                  </div>
                 )}
               </div>
             );

@@ -75,26 +75,28 @@ Rules:
 TODAY'S DATA:
 {{AGGREGATES}}`;
 
-export const PROMO_SYSTEM_PROMPT = `You write short WhatsApp broadcast messages for SliceMatic, a small pizza outlet in New Ashok Nagar, Delhi. The owner sends them to his customer list around festivals and occasions. Respond with valid JSON and nothing else.
+export const PROMO_SYSTEM_PROMPT = `You write a short in-app banner announcement shown on the ordering screen at SliceMatic, a pizza outlet in New Ashok Nagar, Delhi. It is NOT a WhatsApp message — nobody sends it anywhere, it just displays on the page. Respond with valid JSON and nothing else.
 
 Rules:
 - Use ONLY the menu items, prices and sales facts provided below. NEVER invent items, prices, discounts or claims.
-- The OFFER line below is the only offer you may mention. If it is "none", write a warm nudge with no offer — do not imply one.
-- Feature 1-2 menu items that fit the occasion. If the occasion is vegetarian-leaning, feature only veg items.
-- Warm, friendly Hinglish is welcome. Max 80 words in "message". WhatsApp style: short lines, *asterisks* for bold, at most 3 emoji.
+- DISCOUNT below is the exact, only discount you may describe. Restate it faithfully — never invent a different number, percentage or item, and never add a second discount.
+- CODE below is the exact promo code the customer must enter at checkout to redeem the discount. Your "message" MUST include this code verbatim (e.g. "Use code CODE at checkout").
+- Feature 1-2 menu items that fit the occasion when relevant. If the occasion is vegetarian-leaning, feature only veg items.
+- Warm, friendly Hinglish is welcome. Max 40 words in "message" — this is a short on-screen banner, not a chat message. No emoji spam (at most 1).
 - No false urgency, no "limited stock", no delivery-time promises.
 - "whyThisWorks" is one plain sentence for the owner citing the specific sales fact(s) behind your item choice.
 
 Respond with JSON in this exact shape:
 {
   "headline": "one short line, max 8 words",
-  "message": "the WhatsApp broadcast text",
-  "featuredItems": ["exact item name(s) from the menu"],
+  "message": "the on-screen banner text, must include the code",
+  "featuredItems": ["exact item name(s) from the menu, or []"],
   "whyThisWorks": "one sentence for the owner"
 }
 
 OCCASION: {{OCCASION}}
-OFFER: {{OFFER}}
+DISCOUNT: {{DISCOUNT}}
+CODE: {{CODE}}
 
 MENU PIZZAS (name | price in INR | veg/non-veg):
 {{MENU}}
@@ -109,12 +111,12 @@ Rules:
 - Never state counts, percentages or averages in your text; the app computes those from your indexes.
 - Themes must be specific and actionable ("Pizzas arriving cold on weekend evenings"), not vague ("service issues"). Use the day/time fields to spot patterns.
 - "rootCause" is your best operational hypothesis, phrased as a hypothesis. "suggestedAction" is one concrete, low-cost step a small outlet can take this week.
-- For a negative theme, "draftReply" is a short, sincere WhatsApp reply (under 50 words) the owner could send such a customer — apologise, name the specific issue, promise no compensation. For positive/mixed themes use "".
+- This analysis is for the owner only — nothing here is sent to any customer. Do not draft a reply to anyone.
 - At most 5 themes, most serious first. If the entries are too few or too thin to cluster, return an empty "themes" list and explain in "note".
 
 Respond with JSON in this exact shape:
 {
-  "themes": [ { "title": "...", "sentiment": "negative" | "positive" | "mixed", "entryIndexes": [0, 3], "rootCause": "...", "suggestedAction": "...", "draftReply": "..." } ],
+  "themes": [ { "title": "...", "sentiment": "negative" | "positive" | "mixed", "entryIndexes": [0, 3], "rootCause": "...", "suggestedAction": "..." } ],
   "note": "one sentence of overall context, or why there are no themes"
 }
 
@@ -202,10 +204,10 @@ export const FEATURE_META: Record<AiFeature, AiFeatureMeta> = {
   },
   promo: {
     label: "Festival promo planner",
-    blurb: "Admin → Promos — writes a WhatsApp broadcast around an occasion, grounded in your sales data.",
-    placeholders: ["{{OCCASION}}", "{{OFFER}}", "{{MENU}}", "{{FACTS}}"],
+    blurb: "Admin → Promos — writes the headline and message for an in-app discount banner, grounded in your sales data.",
+    placeholders: ["{{OCCASION}}", "{{DISCOUNT}}", "{{CODE}}", "{{MENU}}", "{{FACTS}}"],
     summary:
-      "Writes a short WhatsApp broadcast for an occasion you pick, featuring real menu items chosen from your actual best sellers, slow movers and veg/non-veg mix. It can only mention the offer you selected — it never invents discounts or prices.",
+      "Writes a short on-screen banner for an occasion and discount you pick, featuring real menu items chosen from your actual best sellers, slow movers and veg/non-veg mix. It can only describe the exact discount and code you set up — it never invents a different discount, item or price.",
     examples: [
       "Write the message in simple Hindi.",
       "Mention that we are a family-run outlet when it fits.",
@@ -213,13 +215,13 @@ export const FEATURE_META: Record<AiFeature, AiFeatureMeta> = {
   },
   feedback: {
     label: "Feedback analyst",
-    blurb: "Admin → Ratings — groups customer feedback into themes with root causes and reply drafts.",
+    blurb: "Admin → Ratings — groups customer feedback into themes with likely root causes, for your eyes only.",
     placeholders: ["{{STATS}}", "{{ENTRIES}}"],
     summary:
-      "Reads recent customer feedback and groups it into recurring themes, each with a likely root cause, one concrete fix, and a draft reply for unhappy customers. Counts and quotes are recomputed by the app from the actual entries it cites, so a theme can't claim evidence that isn't there.",
+      "Reads recent customer feedback and groups it into recurring themes, each with a likely root cause and one concrete fix. Nothing is sent to any customer — it's analysis for you. Counts and quotes are recomputed by the app from the actual entries it cites, so a theme can't claim evidence that isn't there.",
     examples: [
       "Prioritise anything about food hygiene above everything else.",
-      "Keep draft replies extra short and very humble.",
+      "Focus mainly on themes from the last two weeks.",
     ],
   },
 };

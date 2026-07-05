@@ -20,10 +20,10 @@ workflow with a validated ordering system, a real database, and six AI features.
                        │              Vercel (Next.js)              │
   Customer / staff ───▶│  /        ordering UI (single page, live   │
                        │           bill, AI assistant, AI upsell,   │
-                       │           owner-published promo banner)    │
+                       │           promo banner + code redemption)  │
   Admin ──────────────▶│  /admin        dashboard + End-of-day AI   │
                        │  /admin/menu   menu management (CRUD)      │
-                       │  /admin/promos festival promo planner (AI) │
+                       │  /admin/promos festival promo codes (AI)   │
                        │  /admin/ratings feedback + AI analyst      │
                        │  /admin/settings/{account,outlet,ai}       │
                        │  floating 🍕  Insights Copilot (all pages) │
@@ -37,6 +37,8 @@ workflow with a validated ordering system, a real database, and six AI features.
                     │ menu_items, orders, │   │  (openai/gpt-4o- │
                     │ order_items,        │   │      mini)       │
                     │ order_item_toppings,│   └──────────────────┘
+                    │ order_feedback,     │
+                    │ promo_codes,        │
                     │ settings            │
                     └─────────────────────┘
 ```
@@ -87,6 +89,10 @@ Principles we can defend line by line:
 - **10% discount** applies automatically at **5+ pizzas** (threshold is one constant:
   `DISCOUNT_THRESHOLD` in [`web/lib/billing.ts`](web/lib/billing.ts) /
   [`stage2/pizzaflow/billing.py`](stage2/pizzaflow/billing.py)).
+- **Promo code discount** (percent-off, or a free topping on one named pizza) applies when
+  a customer enters a currently-active code at checkout — computed on the original
+  subtotal, then the 5+ pizza discount applies to what's left, so the same rupee is never
+  discounted twice. Both are itemised separately on the bill and the receipt.
 - **GST 18%** on the **post-discount** amount. Payment modes: Cash, Card, UPI only.
 
 ---
@@ -149,6 +155,7 @@ four env vars, deploy.
 | Symptom | Cause → fix |
 |---|---|
 | *"Could not find the table 'public.menu_items' in the schema cache"* (or any "tables have not been created yet" banner) | Supabase keys are set but the schema was never applied — run `npm run db:setup` (or paste `schema.sql` + `seed.sql` into the SQL Editor), then refresh. |
+| Confirming an order fails after upgrading to promo codes | An existing Supabase project predates the `promo_codes` table and the `orders.promo_code` / `promo_discount` columns — re-run `schema.sql` (it's additive: `create table if not exists`, `add column if not exists`, safe on a project with live orders). |
 | Demo-mode banner even though keys are set | `.env.local` was edited while the dev server was running — restart `npm run dev`. Env vars are read at startup. |
 | Admin login fails with valid-looking credentials | The user was never created — run `npm run admin:create -- <email> <password>` (also resets a forgotten password). |
 | AI panels say "unavailable" | `OPENROUTER_API_KEY` missing/invalid, out of credit, or the chosen `OPENROUTER_MODEL` id doesn't exist on OpenRouter. Ordering keeps working regardless. |
@@ -180,17 +187,22 @@ request is out of scope.
    occasion calendar ([`web/lib/occasions.ts`](web/lib/occasions.ts)) suggests what's
    coming up (Shravan and Navratri are flagged veg-leaning — the veg/non-veg menu tags
    feed straight in), `computePromoFacts` extracts best sellers, slow movers, veg share
-   and quiet days from the orders table, and the owner picks the offer from a fixed list.
-   The LLM only writes the WhatsApp broadcast copy, in strict JSON; featured items are
-   re-validated against the menu and it may not mention any offer except the one selected.
-   One click publishes the approved text as a banner on the ordering page (a `settings`
-   row — no redeploy) — billing rules are never touched.
+   and quiet days from the orders table, and the owner sets the actual discount (percent
+   off, or a free topping on one named pizza) plus a start/end date-time. The LLM only
+   writes the on-screen banner headline/message, in strict JSON, restating that exact
+   discount and the exact promo code — never inventing a number, item or second offer; the
+   route force-appends the code if the model ever omits it. This is a customer-typed
+   **promo code**, not a broadcast: nothing is sent anywhere. A code goes live purely by
+   its own date-time window (no publish step, no cron) — it appears as a banner and in
+   "see available codes" at checkout, and simply stops being offered once its window ends.
+   The `/admin/promos` page also shows every code's redemption history — orders redeemed,
+   revenue, and discount actually given — computed from paid orders, not estimated.
 6. **Feedback Analyst** (`/admin/ratings`) — clusters recent customer feedback into
    actionable themes ("pizzas arriving cold on weekend evenings"), each with a root-cause
-   hypothesis, one low-cost fix, and a draft WhatsApp reply. The LLM cites feedback
-   entries by *index*; the route validates the indexes and the UI recomputes every count
-   and quote from the actual entries — a theme cannot claim evidence that isn't there,
-   and an unsubstantiated theme is dropped server-side.
+   hypothesis and one low-cost fix — analysis for the owner only, nothing is sent to any
+   customer. The LLM cites feedback entries by *index*; the route validates the indexes
+   and the UI recomputes every count and quote from the actual entries — a theme cannot
+   claim evidence that isn't there, and an unsubstantiated theme is dropped server-side.
 
 **Model: `openai/gpt-4o-mini` — why.** All six features are small, structured tasks
 (JSON mapping and short narration over injected data), not deep reasoning. GPT-4o-mini has
