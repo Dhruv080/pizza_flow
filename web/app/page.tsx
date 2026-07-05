@@ -13,6 +13,7 @@ import {
   getOutletSettings,
   getEffectiveAiFeatures,
   getBestSellerPizzaIds,
+  submitOrderFeedback,
   isDemoMode,
   DEFAULT_OUTLET,
   type OutletSettings,
@@ -417,7 +418,7 @@ function OrderFlow({
                   disabled={!selectedBase}
                 >
                   {selectedBase
-                    ? `Add to cart — ${formatPaise(previewLinePaise)} (adjust quantity in the cart)`
+                    ? `Place order — ${formatPaise(previewLinePaise)} (keep adding more anytime)`
                     : "Pick a base to continue"}
                 </button>
               </div>
@@ -428,7 +429,13 @@ function OrderFlow({
         <div className="bill-panel">
           <div className="card">
             <h2>Your order</h2>
-            {cart.length === 0 && <p className="page-sub">The cart is empty.</p>}
+            {cart.length === 0 ? (
+              <p className="page-sub">The cart is empty.</p>
+            ) : (
+              <p className="page-sub" style={{ marginBottom: 12 }}>
+                Placed so far — add as many more rounds as you like, then finish and pay once.
+              </p>
+            )}
             {cart.map((line, index) => (
               <div className="cart-line" key={index}>
                 <div className="names">
@@ -526,7 +533,7 @@ function OrderFlow({
                 </div>
                 {placeError && <p className="error-text">{placeError}</p>}
                 <button className="btn" style={{ width: "100%", marginTop: 8 }} onClick={placeOrder} disabled={placing}>
-                  {placing ? "Saving order…" : `Confirm & pay ${formatPaise(bill.totalPaise)}`}
+                  {placing ? "Saving order…" : `Finish & pay ${formatPaise(bill.totalPaise)}`}
                 </button>
               </>
             )}
@@ -791,8 +798,147 @@ function Receipt({
         <hr />
         <p style={{ textAlign: "center" }}>Order ID: {order.id.slice(0, 8).toUpperCase()}</p>
       </div>
+
+      <OrderFeedbackForm order={order} />
+
       <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={onNew}>
         New order
+      </button>
+    </div>
+  );
+}
+
+const QUICK_FEEDBACK_TAGS = [
+  "😋 Delicious",
+  "🔥 Fresh & hot",
+  "⚡ Quick service",
+  "🙂 Friendly staff",
+  "💰 Good value",
+  "😕 Needs improvement",
+];
+
+function StarRating({
+  value,
+  onChange,
+  label,
+  size = 22,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+  label: string;
+  size?: number;
+}) {
+  return (
+    <div className="star-rating" role="radiogroup" aria-label={label}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          className="star-btn"
+          aria-label={`${n} star${n > 1 ? "s" : ""} for ${label}`}
+          aria-pressed={n <= value}
+          onClick={() => onChange(n === value ? 0 : n)}
+          style={{ fontSize: size }}
+        >
+          <span className={n <= value ? "star-filled" : "star-empty"}>{n <= value ? "★" : "☆"}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function OrderFeedbackForm({ order }: { order: CompletedOrder }) {
+  const pizzaNames = useMemo(() => Array.from(new Set(order.lines.map((l) => l.pizzaName))), [order.lines]);
+  const [pizzaRatings, setPizzaRatings] = useState<Record<string, number>>({});
+  const [overallRating, setOverallRating] = useState(0);
+  const [quickTags, setQuickTags] = useState<string[]>([]);
+  const [comments, setComments] = useState("");
+  const [status, setStatus] = useState<"idle" | "saving" | "done" | "error">("idle");
+  const [error, setError] = useState("");
+
+  function toggleTag(tag: string) {
+    setQuickTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
+  }
+
+  async function submit() {
+    setStatus("saving");
+    setError("");
+    const message = await submitOrderFeedback({
+      orderId: order.id,
+      overallRating: overallRating || null,
+      pizzaRatings,
+      quickTags,
+      comments,
+    });
+    if (message) {
+      setError(message);
+      setStatus("error");
+      return;
+    }
+    setStatus("done");
+  }
+
+  if (status === "done") {
+    return (
+      <div className="card" style={{ marginTop: 16, textAlign: "center" }}>
+        <strong>Thanks for the feedback, {order.customerName}!</strong>
+        <p className="page-sub" style={{ marginBottom: 0 }}>
+          It helps the kitchen get a little better every day.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <h2>Rate your order</h2>
+
+      {pizzaNames.map((name) => (
+        <div className="feedback-row" key={name}>
+          <span>{name}</span>
+          <StarRating
+            label={name}
+            value={pizzaRatings[name] ?? 0}
+            onChange={(n) => setPizzaRatings((prev) => ({ ...prev, [name]: n }))}
+          />
+        </div>
+      ))}
+
+      <div className="feedback-row feedback-row-overall">
+        <strong>Overall experience</strong>
+        <StarRating label="overall experience" value={overallRating} onChange={setOverallRating} size={26} />
+      </div>
+
+      <p className="step-label" style={{ marginTop: 16 }}>
+        Quick feedback <small>tap any that apply</small>
+      </p>
+      <div className="chip-row">
+        {QUICK_FEEDBACK_TAGS.map((tag) => (
+          <button
+            key={tag}
+            type="button"
+            className={`chip ${quickTags.includes(tag) ? "selected" : ""}`}
+            onClick={() => toggleTag(tag)}
+          >
+            {tag}
+          </button>
+        ))}
+      </div>
+
+      <div className="field" style={{ marginTop: 14 }}>
+        <label htmlFor="feedback-comments">Anything else you&apos;d like to tell us? (optional)</label>
+        <textarea
+          id="feedback-comments"
+          rows={3}
+          placeholder="Tell us more…"
+          value={comments}
+          onChange={(e) => setComments(e.target.value)}
+        />
+      </div>
+
+      {error && <p className="error-text">{error}</p>}
+      <button className="btn" style={{ width: "100%", marginTop: 8 }} onClick={submit} disabled={status === "saving"}>
+        {status === "saving" ? "Sending…" : "Send feedback"}
       </button>
     </div>
   );

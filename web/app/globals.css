@@ -144,6 +144,20 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 }
 .chip:hover { border-color: var(--amber); }
 .chip.selected { border-color: var(--brand); background: var(--err-soft); font-weight: 700; color: var(--brand-dark); }
+
+/* ---------- bill-page ratings/feedback ---------- */
+.feedback-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line);
+}
+.feedback-row:last-of-type { border-bottom: none; }
+.feedback-row-overall { margin-top: 4px; border-top: 1.5px solid var(--line); padding-top: 12px; }
+.star-rating { display: flex; gap: 2px; }
+.star-btn {
+  background: none; border: none; cursor: pointer; padding: 2px; line-height: 1;
+}
+.star-empty { color: var(--line); }
+.star-filled { color: var(--amber); }
 .icard {
   border: 1.5px solid var(--line); border-radius: 10px; background: #fff;
   padding: 10px 12px; cursor: pointer; text-align: left; font-size: 13.5px;

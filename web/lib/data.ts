@@ -352,6 +352,45 @@ export async function getOrders(): Promise<CompletedOrder[]> {
   }));
 }
 
+// ------------------------------------------------------------- feedback
+// Post-payment ratings/feedback captured on the bill page: a star rating per
+// pizza (keyed by name — order ids are generated client-side and never read
+// back, so names are what the bill page already has), an overall rating,
+// tap-only quick tags, and an optional free-text comment.
+
+const DEMO_FEEDBACK_KEY = "pizzaflow_demo_feedback";
+
+export interface OrderFeedbackInput {
+  orderId: string;
+  overallRating: number | null;
+  pizzaRatings: Record<string, number>;
+  quickTags: string[];
+  comments: string;
+}
+
+export async function submitOrderFeedback(input: OrderFeedbackInput): Promise<string | null> {
+  const comments = input.comments.trim();
+  if (comments.length > 1000) return "Feedback must be at most 1000 characters.";
+
+  if (isDemoMode) {
+    if (typeof localStorage !== "undefined") {
+      const existing = JSON.parse(localStorage.getItem(DEMO_FEEDBACK_KEY) ?? "[]");
+      existing.push({ ...input, comments, createdAt: new Date().toISOString() });
+      localStorage.setItem(DEMO_FEEDBACK_KEY, JSON.stringify(existing));
+    }
+    return null;
+  }
+
+  const { error } = await getSupabase().from("order_feedback").insert({
+    order_id: input.orderId,
+    overall_rating: input.overallRating,
+    pizza_ratings: input.pizzaRatings,
+    quick_tags: input.quickTags,
+    comments: comments || null,
+  });
+  return error ? dbError("Could not save your feedback", error).message : null;
+}
+
 const BEST_SELLER_COUNT = 2;
 
 /** Ids of the top-selling pizzas of all time, for the "Best seller" tag on the menu. */

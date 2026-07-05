@@ -70,6 +70,31 @@ create table if not exists order_item_toppings (
 
 create index if not exists order_item_toppings_item_idx on order_item_toppings (order_item_id);
 
+-- ---------------------------------------------------------------- feedback
+-- Post-payment ratings/feedback captured on the bill page. Keyed by pizza
+-- NAME (not order_item id) because order ids are generated client-side and
+-- never read back — names are what the bill page already has on hand.
+create table if not exists order_feedback (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references orders (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  overall_rating int check (overall_rating between 1 and 5),
+  pizza_ratings jsonb not null default '{}'::jsonb, -- { "Margherita": 5, ... }
+  quick_tags text[] not null default '{}',
+  comments text check (comments is null or length(comments) <= 1000)
+);
+
+create index if not exists order_feedback_order_id_idx on order_feedback (order_id);
+
+alter table order_feedback enable row level security;
+
+drop policy if exists "feedback insertable by anyone" on order_feedback;
+create policy "feedback insertable by anyone" on order_feedback
+  for insert with check (true);
+drop policy if exists "feedback readable by admin" on order_feedback;
+create policy "feedback readable by admin" on order_feedback
+  for select to authenticated using (true);
+
 -- ---------------------------------------------------------------- settings
 -- Outlet-level configuration editable from the admin console (e.g. the
 -- outlet's display name). Key/value keeps it schema-stable as settings grow.
