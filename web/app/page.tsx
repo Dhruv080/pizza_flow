@@ -12,6 +12,7 @@ import {
   getMenu,
   getOutletSettings,
   getEffectiveAiFeatures,
+  getBestSellerPizzaIds,
   isDemoMode,
   DEFAULT_OUTLET,
   type OutletSettings,
@@ -31,6 +32,7 @@ export default function OrderPage() {
   const [outlet, setOutlet] = useState<OutletSettings>(DEFAULT_OUTLET);
   const [assistantEnabled, setAssistantEnabled] = useState(true);
   const [upsellEnabled, setUpsellEnabled] = useState(true);
+  const [bestSellerIds, setBestSellerIds] = useState<string[]>([]);
   // The waiter sets the table and hands the tablet over; a completed order
   // returns here so the next customer starts from a fresh table selection.
   const [tableNumber, setTableNumber] = useState<number | null>(null);
@@ -49,6 +51,9 @@ export default function OrderPage() {
         setAssistantEnabled(features.assistant);
         setUpsellEnabled(features.upsell);
       })
+      .catch(() => {});
+    getBestSellerPizzaIds()
+      .then(setBestSellerIds)
       .catch(() => {});
   }, []);
 
@@ -82,6 +87,7 @@ export default function OrderPage() {
       outletName={outlet.name}
       assistantEnabled={assistantEnabled}
       upsellEnabled={upsellEnabled}
+      bestSellerIds={bestSellerIds}
       tableNumber={tableNumber}
       sessionStartedAt={sessionStartedAt}
       onNewOrder={() => {
@@ -136,6 +142,7 @@ function OrderFlow({
   outletName,
   assistantEnabled,
   upsellEnabled,
+  bestSellerIds,
   tableNumber,
   sessionStartedAt,
   onNewOrder,
@@ -144,6 +151,7 @@ function OrderFlow({
   outletName: string;
   assistantEnabled: boolean;
   upsellEnabled: boolean;
+  bestSellerIds: string[];
   tableNumber: number;
   sessionStartedAt: string;
   onNewOrder: () => void;
@@ -348,6 +356,9 @@ function OrderFlow({
                   className={`icard ${pizzaId === item.id ? "selected" : ""}`}
                   onClick={() => setPizzaId(item.id)}
                 >
+                  {bestSellerIds.includes(item.id) && (
+                    <span className="best-seller-tag">★ Best seller</span>
+                  )}
                   <span className="icard-name">{item.name}</span>
                   <span className="icard-price">{formatPaise(item.pricePaise)}</span>
                 </button>

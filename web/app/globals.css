@@ -155,6 +155,11 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 .icard.selected .icard-name { font-weight: 700; }
 .icard.selected .icard-name::after { content: " ✓"; color: var(--brand); }
 .icard-price { color: var(--muted); font-size: 12.5px; }
+.best-seller-tag {
+  align-self: flex-start; background: var(--amber); color: #fff;
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.2px;
+  border-radius: 999px; padding: 2px 8px; margin-bottom: 2px;
+}
 
 /* ---------- table gate (waiter sets the table, customer can't change it) ---------- */
 .gate { display: flex; justify-content: center; padding-top: 8vh; }

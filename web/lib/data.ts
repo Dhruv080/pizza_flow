@@ -352,6 +352,38 @@ export async function getOrders(): Promise<CompletedOrder[]> {
   }));
 }
 
+const BEST_SELLER_COUNT = 2;
+
+/** Ids of the top-selling pizzas of all time, for the "Best seller" tag on the menu. */
+export async function getBestSellerPizzaIds(): Promise<string[]> {
+  if (isDemoMode) {
+    const counts = new Map<string, number>();
+    for (const order of loadDemoOrders()) {
+      for (const line of order.lines) {
+        counts.set(line.pizzaName, (counts.get(line.pizzaName) ?? 0) + line.quantity);
+      }
+    }
+    const idsByName = new Map(
+      loadDemoMenuItems()
+        .filter((i) => i.category === "pizza")
+        .map((i) => [i.name, i.id])
+    );
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, BEST_SELLER_COUNT)
+      .map(([name]) => idsByName.get(name))
+      .filter((id): id is string => Boolean(id));
+  }
+
+  const { data, error } = await getSupabase()
+    .from("best_seller_pizzas")
+    .select("pizza_id")
+    .order("total_quantity", { ascending: false })
+    .limit(BEST_SELLER_COUNT);
+  if (error || !data) return []; // never blocks ordering — the tag just won't show
+  return data.map((row: { pizza_id: string }) => row.pizza_id);
+}
+
 function loadDemoOrders(): CompletedOrder[] {
   if (typeof localStorage === "undefined") return [];
   try {

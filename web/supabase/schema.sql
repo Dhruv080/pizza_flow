@@ -133,3 +133,19 @@ create policy "toppings insertable by anyone" on order_item_toppings
 drop policy if exists "toppings readable by admin" on order_item_toppings;
 create policy "toppings readable by admin" on order_item_toppings
   for select to authenticated using (true);
+
+-- ---------------------------------------------------------- best sellers
+-- Units sold per pizza, all-time. order_items is admin-only (see policy
+-- above), but this view exposes nothing beyond a pizza id/name and a summed
+-- quantity — no customer data, no individual orders — so it is safe for the
+-- public ordering page to read. Views run with the owner's privileges by
+-- default (not the querying role's), so this bypasses the order_items RLS
+-- restriction without loosening it.
+create or replace view best_seller_pizzas as
+  select pizza_id, pizza_name, sum(quantity)::int as total_quantity
+  from order_items
+  where pizza_id is not null
+  group by pizza_id, pizza_name
+  order by total_quantity desc;
+
+grant select on best_seller_pizzas to anon, authenticated;
