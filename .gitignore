@@ -8,3 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+node_modules/
+.next/
+.next-verify/
+out/
+.env*.local
+.env
+*.tsbuildinfo
+next-env.d.ts
+.vercel

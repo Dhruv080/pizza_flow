@@ -196,3 +196,23 @@ stage2/          CLI MVP: main.py, pizzaflow/ package, tests/, menu files, order
 web/             Next.js app: app/ (pages + API routes), lib/ (rules, prompts, data), supabase/ (SQL)
 submissions/     Everything bundled per the submission checklist
 ```
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
+
+# Run and deploy your AI Studio app
+
+This contains everything you need to run your app locally.
+
+View your app in AI Studio: https://ai.studio/apps/92337829-e1bd-4c5d-a3d2-c3bc66995080
+
+## Run Locally
+
+**Prerequisites:**  Node.js
+
+
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`
