@@ -8,7 +8,8 @@ import { useEffect, useMemo, useState } from "react";
 import { computeBill, unitPricePaise, DISCOUNT_THRESHOLD, DISCOUNT_RATE } from "@/lib/billing";
 import { formatPaise } from "@/lib/format";
 import {
-  createOrder,
+  confirmOrder,
+  finishAndPayOrder,
   getMenu,
   getOutletSettings,
   getEffectiveAiFeatures,
@@ -173,8 +174,16 @@ function OrderFlow({
   const [placeError, setPlaceError] = useState("");
   const [placing, setPlacing] = useState(false);
   const [receipt, setReceipt] = useState<CompletedOrder | null>(null);
+  // confirm-and-order: cart lines below confirmedCount are already saved to
+  // the database (and, in a real kitchen, already being made) — frozen from
+  // further edits. Lines from confirmedCount onward are still local-only.
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const [confirmedCount, setConfirmedCount] = useState(0);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState("");
 
   const bill = useMemo(() => computeBill(cart), [cart]);
+  const pendingLines = cart.slice(confirmedCount);
 
   const selectedBase = menu.bases.find((b) => b.id === baseId);
   const selectedPizza = menu.pizzas.find((p) => p.id === pizzaId);
@@ -257,7 +266,41 @@ function OrderFlow({
     setCart((prev) => prev.map((l, i) => (i === index ? { ...l, quantity: nextQty } : l)));
   }
 
-  async function placeOrder() {
+  async function confirmOrderClick() {
+    setConfirmError("");
+    const nameResult = validateName(name);
+    setNameError(nameResult.ok ? "" : nameResult.error);
+    const phoneResult = validatePhone(phone);
+    setPhoneError(phoneResult.ok ? "" : phoneResult.error);
+    if (!nameResult.ok || !phoneResult.ok) {
+      setConfirmError(
+        "We need a valid name and phone number before confirming — please complete the Customer details section."
+      );
+      return;
+    }
+    if (pendingLines.length === 0) return;
+
+    setConfirming(true);
+    try {
+      const id = await confirmOrder({
+        orderId,
+        customerName: nameResult.value,
+        phone: phoneResult.value,
+        tableNumber,
+        sessionStartedAt,
+        cart,
+        newLines: pendingLines,
+      });
+      setOrderId(id);
+      setConfirmedCount(cart.length);
+    } catch (error) {
+      setConfirmError(error instanceof Error ? error.message : "The order could not be confirmed — please retry.");
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  async function finishAndPay() {
     setPlaceError("");
     const nameResult = validateName(name);
     setNameError(nameResult.ok ? "" : nameResult.error);
@@ -276,13 +319,15 @@ function OrderFlow({
 
     setPlacing(true);
     try {
-      const order = await createOrder({
+      const order = await finishAndPayOrder({
+        orderId,
         customerName: nameResult.value,
         phone: phoneResult.value,
         tableNumber,
-        lines: cart,
-        paymentMode,
         sessionStartedAt,
+        cart,
+        newLines: cart.slice(confirmedCount),
+        paymentMode,
       });
       setReceipt(order);
     } catch (error) {
@@ -418,7 +463,7 @@ function OrderFlow({
                   disabled={!selectedBase}
                 >
                   {selectedBase
-                    ? `Place order — ${formatPaise(previewLinePaise)} (keep adding more anytime)`
+                    ? `Add to cart — ${formatPaise(previewLinePaise)}`
                     : "Pick a base to continue"}
                 </button>
               </div>
@@ -433,43 +478,50 @@ function OrderFlow({
               <p className="page-sub">The cart is empty.</p>
             ) : (
               <p className="page-sub" style={{ marginBottom: 12 }}>
-                Placed so far — add as many more rounds as you like, then finish and pay once.
+                Add pizzas, confirm and order whenever you like, then finish and pay when you're done.
               </p>
             )}
-            {cart.map((line, index) => (
-              <div className="cart-line" key={index}>
-                <div className="names">
-                  <strong>{line.pizza.name}</strong>
-                  <small>
-                    {line.base.name}
-                    {line.toppings.length > 0 && ` · ${line.toppings.map((t) => t.name).join(", ")}`}
-                  </small>
-                  <div className="qty-stepper">
-                    <button
-                      aria-label={`One less ${line.pizza.name}`}
-                      disabled={line.quantity <= 1}
-                      onClick={() => changeQty(index, -1)}
-                    >
-                      −
-                    </button>
-                    <span>{line.quantity}</span>
-                    <button
-                      aria-label={`One more ${line.pizza.name}`}
-                      onClick={() => changeQty(index, 1)}
-                    >
-                      +
-                    </button>
-                    <button
-                      className="cart-remove"
-                      onClick={() => setCart((prev) => prev.filter((_, i) => i !== index))}
-                    >
-                      remove
-                    </button>
+            {cart.map((line, index) => {
+              const confirmed = index < confirmedCount;
+              return (
+                <div className="cart-line" key={index}>
+                  <div className="names">
+                    <strong>{line.pizza.name}</strong>
+                    <small>
+                      {line.base.name}
+                      {line.toppings.length > 0 && ` · ${line.toppings.map((t) => t.name).join(", ")}`}
+                    </small>
+                    {confirmed ? (
+                      <span className="line-confirmed-tag">✓ Confirmed · Qty {line.quantity}</span>
+                    ) : (
+                      <div className="qty-stepper">
+                        <button
+                          aria-label={`One less ${line.pizza.name}`}
+                          disabled={line.quantity <= 1}
+                          onClick={() => changeQty(index, -1)}
+                        >
+                          −
+                        </button>
+                        <span>{line.quantity}</span>
+                        <button
+                          aria-label={`One more ${line.pizza.name}`}
+                          onClick={() => changeQty(index, 1)}
+                        >
+                          +
+                        </button>
+                        <button
+                          className="cart-remove"
+                          onClick={() => setCart((prev) => prev.filter((_, i) => i !== index))}
+                        >
+                          remove
+                        </button>
+                      </div>
+                    )}
                   </div>
+                  <div>{formatPaise(unitPricePaise(line) * line.quantity)}</div>
                 </div>
-                <div>{formatPaise(unitPricePaise(line) * line.quantity)}</div>
-              </div>
-            ))}
+              );
+            })}
 
             {cart.length > 0 && (
               <>
@@ -519,6 +571,20 @@ function OrderFlow({
                   </div>
                 </div>
 
+                {confirmError && <p className="error-text">{confirmError}</p>}
+                <button
+                  className="btn btn-secondary"
+                  style={{ width: "100%", marginTop: 12 }}
+                  onClick={confirmOrderClick}
+                  disabled={confirming || pendingLines.length === 0}
+                >
+                  {confirming
+                    ? "Confirming…"
+                    : pendingLines.length > 0
+                      ? `Confirm and order (${pendingLines.length} new item${pendingLines.length > 1 ? "s" : ""})`
+                      : "All items confirmed"}
+                </button>
+
                 <h3 style={{ marginTop: 14 }}>Payment</h3>
                 <div className="pay-modes">
                   {PAYMENT_MODES.map((mode) => (
@@ -532,7 +598,7 @@ function OrderFlow({
                   ))}
                 </div>
                 {placeError && <p className="error-text">{placeError}</p>}
-                <button className="btn" style={{ width: "100%", marginTop: 8 }} onClick={placeOrder} disabled={placing}>
+                <button className="btn" style={{ width: "100%", marginTop: 8 }} onClick={finishAndPay} disabled={placing}>
                   {placing ? "Saving order…" : `Finish & pay ${formatPaise(bill.totalPaise)}`}
                 </button>
               </>

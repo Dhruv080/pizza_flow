@@ -4,6 +4,7 @@
 
 import { paiseToRupees } from "./format";
 import type { CompletedOrder } from "./types";
+import type { OrderFeedbackRecord } from "./data";
 
 export interface OrderAggregates {
   generatedAt: string;
@@ -93,6 +94,53 @@ export function computeAggregates(orders: CompletedOrder[]): OrderAggregates {
 export function todaysOrders(orders: CompletedOrder[]): CompletedOrder[] {
   const today = new Date().toDateString();
   return orders.filter((o) => new Date(o.createdAt).toDateString() === today);
+}
+
+export interface PizzaRatingSummary {
+  pizzaName: string;
+  avgRating: number; // rounded to 1 decimal
+  ratingCount: number;
+}
+
+export interface RatingSummary {
+  pizzas: PizzaRatingSummary[]; // sorted best-rated first, then most-rated
+  overallAvgRating: number | null;
+  overallRatingCount: number;
+  feedbackCount: number; // total feedback submissions, rated or not
+}
+
+/** Per-pizza and overall star-rating aggregates for the admin Ratings page. */
+export function computePizzaRatingSummary(feedback: OrderFeedbackRecord[]): RatingSummary {
+  const sums = new Map<string, number>();
+  const counts = new Map<string, number>();
+  let overallSum = 0;
+  let overallCount = 0;
+
+  for (const entry of feedback) {
+    for (const [pizzaName, rating] of Object.entries(entry.pizzaRatings)) {
+      sums.set(pizzaName, (sums.get(pizzaName) ?? 0) + rating);
+      counts.set(pizzaName, (counts.get(pizzaName) ?? 0) + 1);
+    }
+    if (entry.overallRating) {
+      overallSum += entry.overallRating;
+      overallCount += 1;
+    }
+  }
+
+  const pizzas = [...counts.keys()]
+    .map((pizzaName) => ({
+      pizzaName,
+      avgRating: Math.round((sums.get(pizzaName)! / counts.get(pizzaName)!) * 10) / 10,
+      ratingCount: counts.get(pizzaName)!,
+    }))
+    .sort((a, b) => b.avgRating - a.avgRating || b.ratingCount - a.ratingCount);
+
+  return {
+    pizzas,
+    overallAvgRating: overallCount > 0 ? Math.round((overallSum / overallCount) * 10) / 10 : null,
+    overallRatingCount: overallCount,
+    feedbackCount: feedback.length,
+  };
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;

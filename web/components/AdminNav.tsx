@@ -31,6 +31,9 @@ export default function AdminNav({ onSignOut }: { onSignOut: () => void }) {
         <Link href="/admin/menu" className={isActive("/admin/menu") ? "active" : ""}>
           Menu management
         </Link>
+        <Link href="/admin/ratings" className={isActive("/admin/ratings") ? "active" : ""}>
+          Ratings
+        </Link>
         <details className="dd admin-settings-dd" ref={settingsRef}>
           <summary>⚙ Settings</summary>
           <div className="dd-panel">

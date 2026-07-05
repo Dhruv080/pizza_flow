@@ -217,89 +217,145 @@ export async function setMenuItemActive(id: string, isActive: boolean): Promise<
 }
 
 // ---------------------------------------------------------------- orders
+// Lifecycle: "Confirm and order" persists the cart — the first call creates
+// the order (status 'placed', payment_mode null); later calls just insert
+// the newly-added lines onto the same order and refresh the running bill
+// totals. "Finish and pay" (finishAndPayOrder) makes sure everything is
+// confirmed, then sets payment_mode and status 'paid'. Kitchen delivery
+// itself is out of scope — this only tracks confirmed vs. paid.
 
-export async function createOrder(params: {
+function lineToOrderLine(line: CartLine): CompletedOrder["lines"][number] {
+  const unitPricePaise =
+    line.base.pricePaise + line.pizza.pricePaise + line.toppings.reduce((s, t) => s + t.pricePaise, 0);
+  return {
+    baseName: line.base.name,
+    pizzaName: line.pizza.name,
+    toppingNames: line.toppings.map((t) => t.name),
+    quantity: line.quantity,
+    unitPricePaise,
+    lineTotalPaise: unitPricePaise * line.quantity,
+  };
+}
+
+interface DemoOrderRecord extends Omit<CompletedOrder, "paymentMode"> {
+  paymentMode: PaymentMode | null;
+  status: "placed" | "paid";
+}
+
+/** Raw localStorage record store, including still-'placed' (unpaid) orders. */
+function loadDemoOrderRecords(): DemoOrderRecord[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const raw = JSON.parse(localStorage.getItem(DEMO_ORDERS_KEY) ?? "[]");
+    // Legacy entries predate the placed/paid lifecycle — under the old
+    // one-shot flow every stored order was already fully paid.
+    return raw.map((o: any) => ({ status: "paid", ...o }));
+  } catch {
+    return [];
+  }
+}
+
+function saveDemoOrderRecords(records: DemoOrderRecord[]): void {
+  localStorage.setItem(DEMO_ORDERS_KEY, JSON.stringify(records));
+}
+
+export async function confirmOrder(params: {
+  orderId: string | null;
   customerName: string;
   phone: string;
   tableNumber: number;
-  lines: CartLine[];
-  paymentMode: PaymentMode;
   sessionStartedAt: string;
-}): Promise<CompletedOrder> {
-  const bill = computeBill(params.lines);
-  const order: CompletedOrder = {
-    id: generateUUID(),
-    createdAt: new Date().toISOString(),
-    sessionStartedAt: params.sessionStartedAt,
-    customerName: params.customerName,
-    phone: params.phone,
-    tableNumber: params.tableNumber,
-    lines: params.lines.map((line) => ({
-      baseName: line.base.name,
-      pizzaName: line.pizza.name,
-      toppingNames: line.toppings.map((t) => t.name),
-      quantity: line.quantity,
-      unitPricePaise:
-        line.base.pricePaise +
-        line.pizza.pricePaise +
-        line.toppings.reduce((s, t) => s + t.pricePaise, 0),
-      lineTotalPaise:
-        (line.base.pricePaise +
-          line.pizza.pricePaise +
-          line.toppings.reduce((s, t) => s + t.pricePaise, 0)) *
-        line.quantity,
-    })),
-    subtotalPaise: bill.subtotalPaise,
-    discountPaise: bill.discountPaise,
-    gstPaise: bill.gstPaise,
-    totalPaise: bill.totalPaise,
-    paymentMode: params.paymentMode,
-  };
+  cart: CartLine[]; // full cart so far (confirmed + newLines) — bill totals reflect this
+  newLines: CartLine[]; // just the not-yet-persisted lines to insert this call
+}): Promise<string> {
+  const bill = computeBill(params.cart);
 
   if (isDemoMode) {
-    const existing = loadDemoOrders();
-    existing.unshift(order);
-    localStorage.setItem(DEMO_ORDERS_KEY, JSON.stringify(existing));
-    return order;
+    const records = loadDemoOrderRecords();
+    const existing = params.orderId ? records.find((o) => o.id === params.orderId) : undefined;
+    if (existing) {
+      existing.customerName = params.customerName;
+      existing.phone = params.phone;
+      existing.tableNumber = params.tableNumber;
+      existing.lines = params.cart.map(lineToOrderLine);
+      existing.subtotalPaise = bill.subtotalPaise;
+      existing.discountPaise = bill.discountPaise;
+      existing.gstPaise = bill.gstPaise;
+      existing.totalPaise = bill.totalPaise;
+      saveDemoOrderRecords(records);
+      return existing.id;
+    }
+    const id = generateUUID();
+    records.unshift({
+      id,
+      createdAt: new Date().toISOString(),
+      sessionStartedAt: params.sessionStartedAt,
+      customerName: params.customerName,
+      phone: params.phone,
+      tableNumber: params.tableNumber,
+      lines: params.cart.map(lineToOrderLine),
+      subtotalPaise: bill.subtotalPaise,
+      discountPaise: bill.discountPaise,
+      gstPaise: bill.gstPaise,
+      totalPaise: bill.totalPaise,
+      paymentMode: null,
+      status: "placed",
+    });
+    saveDemoOrderRecords(records);
+    return id;
   }
 
-  // RLS note: the anon role may INSERT orders but can never SELECT them, so
-  // these inserts must not use `.select()` (RETURNING would be checked against
-  // the SELECT policy and rejected). All ids are generated client-side instead.
   const supabase = getSupabase();
-  const { error: orderError } = await supabase.from("orders").insert({
-    id: order.id,
-    created_at: order.createdAt,
-    customer_name: order.customerName,
-    phone: order.phone,
-    table_number: order.tableNumber,
-    session_started_at: order.sessionStartedAt,
-    subtotal: paiseToRupees(order.subtotalPaise),
-    discount: paiseToRupees(order.discountPaise),
-    gst: paiseToRupees(order.gstPaise),
-    total: paiseToRupees(order.totalPaise),
-    payment_mode: order.paymentMode,
-  });
-  if (orderError) throw dbError("Could not save the order", orderError);
+  const billFields = {
+    customer_name: params.customerName,
+    phone: params.phone,
+    table_number: params.tableNumber,
+    subtotal: paiseToRupees(bill.subtotalPaise),
+    discount: paiseToRupees(bill.discountPaise),
+    gst: paiseToRupees(bill.gstPaise),
+    total: paiseToRupees(bill.totalPaise),
+  };
 
-  const itemRows = params.lines.map((line) => ({
+  if (!params.orderId) {
+    const id = generateUUID();
+    // RLS note: the anon role may INSERT orders but never SELECT them, so
+    // this call must not use `.select()` (RETURNING would be checked against
+    // the SELECT policy and rejected). The id is generated client-side instead.
+    const { error: orderError } = await supabase
+      .from("orders")
+      .insert({ id, session_started_at: params.sessionStartedAt, status: "placed", ...billFields });
+    if (orderError) throw dbError("Could not confirm the order", orderError);
+    await insertOrderLines(supabase, id, params.newLines);
+    return id;
+  }
+
+  await updateOrderFields(params.orderId, billFields);
+  await insertOrderLines(supabase, params.orderId, params.newLines);
+  return params.orderId;
+}
+
+async function insertOrderLines(
+  supabase: ReturnType<typeof getSupabase>,
+  orderId: string,
+  lines: CartLine[]
+): Promise<void> {
+  if (!lines.length) return;
+  const itemRows = lines.map((line) => ({
     id: generateUUID(),
-    order_id: order.id,
+    order_id: orderId,
     base_id: line.base.id,
     pizza_id: line.pizza.id,
     base_name: line.base.name,
     pizza_name: line.pizza.name,
     quantity: line.quantity,
     unit_price: paiseToRupees(
-      line.base.pricePaise +
-        line.pizza.pricePaise +
-        line.toppings.reduce((s, t) => s + t.pricePaise, 0)
+      line.base.pricePaise + line.pizza.pricePaise + line.toppings.reduce((s, t) => s + t.pricePaise, 0)
     ),
   }));
   const { error: itemError } = await supabase.from("order_items").insert(itemRows);
   if (itemError) throw dbError("Could not save an order line", itemError);
 
-  const toppingRows = params.lines.flatMap((line, index) =>
+  const toppingRows = lines.flatMap((line, index) =>
     line.toppings.map((t) => ({
       order_item_id: itemRows[index].id,
       topping_id: t.id,
@@ -311,12 +367,102 @@ export async function createOrder(params: {
     const { error: topError } = await supabase.from("order_item_toppings").insert(toppingRows);
     if (topError) throw dbError("Could not save toppings", topError);
   }
+}
+
+export async function finishAndPayOrder(params: {
+  orderId: string | null;
+  customerName: string;
+  phone: string;
+  tableNumber: number;
+  sessionStartedAt: string;
+  cart: CartLine[];
+  newLines: CartLine[]; // any still-unconfirmed lines — confirmed here if present
+  paymentMode: PaymentMode;
+}): Promise<CompletedOrder> {
+  const orderId =
+    !params.orderId || params.newLines.length > 0
+      ? await confirmOrder({
+          orderId: params.orderId,
+          customerName: params.customerName,
+          phone: params.phone,
+          tableNumber: params.tableNumber,
+          sessionStartedAt: params.sessionStartedAt,
+          cart: params.cart,
+          newLines: params.newLines,
+        })
+      : params.orderId;
+
+  const bill = computeBill(params.cart);
+  const order: CompletedOrder = {
+    id: orderId,
+    createdAt: new Date().toISOString(),
+    sessionStartedAt: params.sessionStartedAt,
+    customerName: params.customerName,
+    phone: params.phone,
+    tableNumber: params.tableNumber,
+    lines: params.cart.map(lineToOrderLine),
+    subtotalPaise: bill.subtotalPaise,
+    discountPaise: bill.discountPaise,
+    gstPaise: bill.gstPaise,
+    totalPaise: bill.totalPaise,
+    paymentMode: params.paymentMode,
+  };
+
+  if (isDemoMode) {
+    const records = loadDemoOrderRecords();
+    const existing = records.find((o) => o.id === orderId);
+    if (existing) {
+      existing.paymentMode = params.paymentMode;
+      existing.status = "paid";
+      existing.subtotalPaise = bill.subtotalPaise;
+      existing.discountPaise = bill.discountPaise;
+      existing.gstPaise = bill.gstPaise;
+      existing.totalPaise = bill.totalPaise;
+      saveDemoOrderRecords(records);
+    }
+    return order;
+  }
+
+  await updateOrderFields(orderId, {
+    payment_mode: params.paymentMode,
+    status: "paid",
+    subtotal: paiseToRupees(bill.subtotalPaise),
+    discount: paiseToRupees(bill.discountPaise),
+    gst: paiseToRupees(bill.gstPaise),
+    total: paiseToRupees(bill.totalPaise),
+  });
 
   return order;
 }
 
+/**
+ * Updates to `orders` (running bill totals on each confirm, then
+ * payment_mode/status on finish) go through this server route with the
+ * service-role key rather than the anon client directly: the anon-role RLS
+ * "update while placed" policy — despite a correct policy definition and
+ * grants — was not reliably applying in this project's Supabase instance, so
+ * the writes silently matched zero rows. Routing through the server sidesteps
+ * that entirely. (Inserts are unaffected and stay on the anon client above.)
+ */
+async function updateOrderFields(orderId: string, fields: Record<string, unknown>): Promise<void> {
+  const response = await fetch("/api/orders/update", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orderId, fields }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}) as { error?: string });
+    throw new Error(payload.error || "Could not update the order.");
+  }
+}
+
+/** Paid orders only — a placed-but-abandoned cart is not a completed sale. */
 export async function getOrders(): Promise<CompletedOrder[]> {
-  if (isDemoMode) return loadDemoOrders();
+  if (isDemoMode) {
+    return loadDemoOrderRecords()
+      .filter((o): o is DemoOrderRecord & { paymentMode: PaymentMode } => o.status === "paid")
+      .map(({ status, ...order }) => order);
+  }
 
   const { data, error } = await getSupabase()
     .from("orders")
@@ -326,6 +472,7 @@ export async function getOrders(): Promise<CompletedOrder[]> {
        order_items ( base_name, pizza_name, quantity, unit_price,
          order_item_toppings ( topping_name ) )`
     )
+    .eq("status", "paid")
     .order("created_at", { ascending: false });
   if (error) throw dbError("Could not load orders", error);
 
@@ -391,13 +538,57 @@ export async function submitOrderFeedback(input: OrderFeedbackInput): Promise<st
   return error ? dbError("Could not save your feedback", error).message : null;
 }
 
+export interface OrderFeedbackRecord {
+  id: string;
+  createdAt: string;
+  overallRating: number | null;
+  pizzaRatings: Record<string, number>;
+  quickTags: string[];
+  comments: string | null;
+}
+
+/** Admin-only: every feedback submission, for the Ratings page. */
+export async function getOrderFeedback(): Promise<OrderFeedbackRecord[]> {
+  if (isDemoMode) {
+    if (typeof localStorage === "undefined") return [];
+    try {
+      const raw = JSON.parse(localStorage.getItem(DEMO_FEEDBACK_KEY) ?? "[]");
+      return raw.map((entry: any) => ({
+        id: entry.orderId,
+        createdAt: entry.createdAt,
+        overallRating: entry.overallRating ?? null,
+        pizzaRatings: entry.pizzaRatings ?? {},
+        quickTags: entry.quickTags ?? [],
+        comments: entry.comments || null,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  const { data, error } = await getSupabase()
+    .from("order_feedback")
+    .select("id, created_at, overall_rating, pizza_ratings, quick_tags, comments")
+    .order("created_at", { ascending: false });
+  if (error) throw dbError("Could not load feedback", error);
+
+  return (data ?? []).map((row: any): OrderFeedbackRecord => ({
+    id: row.id,
+    createdAt: row.created_at,
+    overallRating: row.overall_rating,
+    pizzaRatings: row.pizza_ratings ?? {},
+    quickTags: row.quick_tags ?? [],
+    comments: row.comments,
+  }));
+}
+
 const BEST_SELLER_COUNT = 2;
 
 /** Ids of the top-selling pizzas of all time, for the "Best seller" tag on the menu. */
 export async function getBestSellerPizzaIds(): Promise<string[]> {
   if (isDemoMode) {
     const counts = new Map<string, number>();
-    for (const order of loadDemoOrders()) {
+    for (const order of loadDemoOrderRecords().filter((o) => o.status === "paid")) {
       for (const line of order.lines) {
         counts.set(line.pizzaName, (counts.get(line.pizzaName) ?? 0) + line.quantity);
       }
@@ -421,15 +612,6 @@ export async function getBestSellerPizzaIds(): Promise<string[]> {
     .limit(BEST_SELLER_COUNT);
   if (error || !data) return []; // never blocks ordering — the tag just won't show
   return data.map((row: { pizza_id: string }) => row.pizza_id);
-}
-
-function loadDemoOrders(): CompletedOrder[] {
-  if (typeof localStorage === "undefined") return [];
-  try {
-    return JSON.parse(localStorage.getItem(DEMO_ORDERS_KEY) ?? "[]");
-  } catch {
-    return [];
-  }
 }
 
 // ---------------------------------------------------------------- settings

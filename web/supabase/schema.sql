@@ -27,6 +27,11 @@ create table if not exists menu_items (
 );
 
 -- ---------------------------------------------------------------- orders
+-- Lifecycle: 'placed' from the first "Confirm and order" click (payment_mode
+-- still null — the customer may add more pizzas and confirm again, each time
+-- appending order_items to this same row), then 'paid' once "Finish and pay"
+-- sets a payment_mode. Kitchen delivery itself is out of scope; this table
+-- only tracks what's been confirmed and what's been paid for.
 create table if not exists orders (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
@@ -37,12 +42,21 @@ create table if not exists orders (
   discount numeric(10, 2) not null default 0 check (discount >= 0),
   gst numeric(10, 2) not null check (gst >= 0),
   total numeric(10, 2) not null check (total >= 0),
-  payment_mode text not null check (payment_mode in ('Cash', 'Card', 'UPI')),
-  table_number int check (table_number between 1 and 50)
+  payment_mode text check (payment_mode in ('Cash', 'Card', 'UPI')),
+  table_number int check (table_number between 1 and 50),
+  status text not null default 'placed' check (status in ('placed', 'paid'))
 );
 
 -- Upgrade path for databases created before dine-in table tracking existed.
 alter table orders add column if not exists table_number int check (table_number between 1 and 50);
+
+-- Upgrade path for databases created before the confirm/pay lifecycle existed.
+-- Default 'paid' here (unlike the fresh-create default above) because it
+-- backfills rows created under the old one-shot flow, which were always
+-- fully paid already; every new insert/update from the app passes status
+-- explicitly, so this default only ever applies to pre-existing rows.
+alter table orders add column if not exists status text not null default 'paid' check (status in ('placed', 'paid'));
+alter table orders alter column payment_mode drop not null;
 
 create index if not exists orders_created_at_idx on orders (created_at desc);
 
@@ -144,6 +158,15 @@ create policy "orders insertable by anyone" on orders
 drop policy if exists "orders readable by admin" on orders;
 create policy "orders readable by admin" on orders
   for select to authenticated using (true);
+-- The public flow updates its own order (running totals on each "Confirm and
+-- order", then payment_mode + status on "Finish and pay") — but only while it
+-- is still 'placed'; once 'paid', anon can no longer write to it. WITH CHECK
+-- must be spelled out as `true`: without it, Postgres reuses the USING clause
+-- as the check on the RESULTING row too, which would reject the one update
+-- that matters most — setting status to 'paid'.
+drop policy if exists "orders updatable while placed" on orders;
+create policy "orders updatable while placed" on orders
+  for update using (status = 'placed') with check (true);
 
 drop policy if exists "order items insertable by anyone" on order_items;
 create policy "order items insertable by anyone" on order_items
@@ -160,17 +183,24 @@ create policy "toppings readable by admin" on order_item_toppings
   for select to authenticated using (true);
 
 -- ---------------------------------------------------------- best sellers
--- Units sold per pizza, all-time. order_items is admin-only (see policy
--- above), but this view exposes nothing beyond a pizza id/name and a summed
--- quantity — no customer data, no individual orders — so it is safe for the
--- public ordering page to read. Views run with the owner's privileges by
--- default (not the querying role's), so this bypasses the order_items RLS
--- restriction without loosening it.
+-- Units sold per pizza, all-time (paid orders only — a placed-but-abandoned
+-- cart shouldn't earn a pizza the "Best seller" tag). order_items is
+-- admin-only (see policy above), but this view exposes nothing beyond a
+-- pizza id/name and a summed quantity — no customer data, no individual
+-- orders — so it is safe for the public ordering page to read. Views run
+-- with the owner's privileges by default (not the querying role's), so this
+-- bypasses the order_items/orders RLS restrictions without loosening them.
 create or replace view best_seller_pizzas as
-  select pizza_id, pizza_name, sum(quantity)::int as total_quantity
-  from order_items
-  where pizza_id is not null
-  group by pizza_id, pizza_name
+  select oi.pizza_id, oi.pizza_name, sum(oi.quantity)::int as total_quantity
+  from order_items oi
+  join orders o on o.id = oi.order_id
+  where oi.pizza_id is not null and o.status = 'paid'
+  group by oi.pizza_id, oi.pizza_name
   order by total_quantity desc;
 
 grant select on best_seller_pizzas to anon, authenticated;
+
+-- Applied via a direct Postgres connection (db:setup), not Supabase's own
+-- migration UI, so PostgREST's schema/policy cache may not auto-refresh —
+-- ask it to reload explicitly so new columns/policies take effect immediately.
+notify pgrst, 'reload schema';

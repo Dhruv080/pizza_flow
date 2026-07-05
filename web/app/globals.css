@@ -208,6 +208,9 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 .qty-stepper button:not(.cart-remove):disabled { border-color: var(--line); color: var(--line); cursor: not-allowed; }
 .qty-stepper span { min-width: 20px; text-align: center; font-weight: 700; }
 .qty-stepper .cart-remove { margin-left: 6px; }
+.line-confirmed-tag {
+  display: inline-block; margin-top: 6px; color: var(--ok); font-weight: 700; font-size: 12.5px;
+}
 
 /* ---------- bill ---------- */
 .bill-rows { font-size: 14px; }
