@@ -4,19 +4,30 @@
 // bill page after paying (see the "Rate your order" section in app/page.tsx).
 // Read-only — no admin actions here, just the numbers.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { computePizzaRatingSummary } from "@/lib/analytics";
+import { formatDateTime } from "@/lib/format";
 import { getOrderFeedback, isDemoMode, type OrderFeedbackRecord } from "@/lib/data";
+
+const PAGE_SIZE = 10;
 
 export default function RatingsPage() {
   const [feedback, setFeedback] = useState<OrderFeedbackRecord[] | null>(null);
   const [loadError, setLoadError] = useState("");
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     getOrderFeedback()
       .then(setFeedback)
       .catch((error: Error) => setLoadError(error.message));
   }, []);
+
+  const pageCount = Math.max(1, Math.ceil((feedback?.length ?? 0) / PAGE_SIZE));
+  const pageClamped = Math.min(page, pageCount - 1);
+  const pagedFeedback = useMemo(
+    () => (feedback ?? []).slice(pageClamped * PAGE_SIZE, pageClamped * PAGE_SIZE + PAGE_SIZE),
+    [feedback, pageClamped],
+  );
 
   if (loadError) return <div className="banner banner-error">Could not load ratings: {loadError}</div>;
   if (!feedback) return <p className="page-sub">Loading ratings…</p>;
@@ -84,6 +95,81 @@ export default function RatingsPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <h2>Feedback by order</h2>
+        <p className="page-sub">Every submission, with the order it came from and the customer&apos;s comments.</p>
+        <div className="table-scroll">
+          <table className="orders-table">
+            <thead>
+              <tr>
+                <th>Order ID</th>
+                <th>When</th>
+                <th>Overall</th>
+                <th>Pizza ratings</th>
+                <th>Tags</th>
+                <th>Comments</th>
+              </tr>
+            </thead>
+            <tbody>
+              {feedback.length === 0 && (
+                <tr>
+                  <td colSpan={6} style={{ color: "var(--muted)" }}>
+                    No feedback yet.
+                  </td>
+                </tr>
+              )}
+              {pagedFeedback.map((entry) => (
+                <tr key={entry.id}>
+                  <td title={entry.orderId}>
+                    <code>{entry.orderId ? entry.orderId.slice(0, 8).toUpperCase() : "—"}</code>
+                  </td>
+                  <td>{formatDateTime(entry.createdAt)}</td>
+                  <td>{entry.overallRating != null ? `★ ${entry.overallRating}` : "—"}</td>
+                  <td>
+                    {Object.entries(entry.pizzaRatings).length === 0
+                      ? "—"
+                      : Object.entries(entry.pizzaRatings).map(([name, rating]) => (
+                          <div key={name}>
+                            {name}: ★ {rating}
+                          </div>
+                        ))}
+                  </td>
+                  <td>{entry.quickTags.length > 0 ? entry.quickTags.join(", ") : "—"}</td>
+                  <td>{entry.comments || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {feedback.length > 0 && (
+          <div className="pagination-bar">
+            <span>
+              {pageClamped * PAGE_SIZE + 1}–{Math.min((pageClamped + 1) * PAGE_SIZE, feedback.length)} of{" "}
+              {feedback.length}
+            </span>
+            <div className="pagination-controls">
+              <button
+                className="btn btn-small btn-secondary"
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={pageClamped === 0}
+              >
+                Prev
+              </button>
+              <span>
+                Page {pageClamped + 1} of {pageCount}
+              </span>
+              <button
+                className="btn btn-small btn-secondary"
+                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                disabled={pageClamped >= pageCount - 1}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

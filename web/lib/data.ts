@@ -552,6 +552,7 @@ export async function submitOrderFeedback(input: OrderFeedbackInput): Promise<st
 
 export interface OrderFeedbackRecord {
   id: string;
+  orderId: string;
   createdAt: string;
   overallRating: number | null;
   pizzaRatings: Record<string, number>;
@@ -567,6 +568,7 @@ export async function getOrderFeedback(): Promise<OrderFeedbackRecord[]> {
       const raw = JSON.parse(localStorage.getItem(DEMO_FEEDBACK_KEY) ?? "[]");
       return raw.map((entry: any) => ({
         id: entry.orderId,
+        orderId: entry.orderId,
         createdAt: entry.createdAt,
         overallRating: entry.overallRating ?? null,
         pizzaRatings: entry.pizzaRatings ?? {},
@@ -580,12 +582,13 @@ export async function getOrderFeedback(): Promise<OrderFeedbackRecord[]> {
 
   const { data, error } = await getSupabase()
     .from("order_feedback")
-    .select("id, created_at, overall_rating, pizza_ratings, quick_tags, comments")
+    .select("id, order_id, created_at, overall_rating, pizza_ratings, quick_tags, comments")
     .order("created_at", { ascending: false });
   if (error) throw dbError("Could not load feedback", error);
 
   return (data ?? []).map((row: any): OrderFeedbackRecord => ({
     id: row.id,
+    orderId: row.order_id,
     createdAt: row.created_at,
     overallRating: row.overall_rating,
     pizzaRatings: row.pizza_ratings ?? {},

@@ -13,6 +13,7 @@ import { AdminDailyChart, type DailyPoint } from "@/components/AdminDailyChart";
 import { requestDigestInChat } from "@/lib/insightsChatBus";
 
 const PAGE_SIZE = 10;
+const REPEAT_PAGE_SIZE = 5;
 const CHART_DAYS = 14; // trailing window shown when the range is open-ended
 const CHART_MAX_DAYS = 92; // guard so a huge custom range can't render 1000 bars
 
@@ -74,6 +75,7 @@ export default function AdminPage() {
   const [dateFrom, setDateFrom] = useState(() => presetRange("today").from);
   const [dateTo, setDateTo] = useState(() => presetRange("today").to);
   const [page, setPage] = useState(0);
+  const [repeatPage, setRepeatPage] = useState(0);
   const [digestEnabled, setDigestEnabled] = useState(true);
 
   // The period dropdown is the one control for both the stat cards and the
@@ -175,6 +177,12 @@ export default function AdminPage() {
   const pagedOrders = filteredOrders.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
 
   const repeatCustomers = useMemo(() => (orders ? computeRepeatCustomers(orders) : []), [orders]);
+  const repeatPageCount = Math.max(1, Math.ceil(repeatCustomers.length / REPEAT_PAGE_SIZE));
+  const repeatPageClamped = Math.min(repeatPage, repeatPageCount - 1);
+  const pagedRepeatCustomers = repeatCustomers.slice(
+    repeatPageClamped * REPEAT_PAGE_SIZE,
+    repeatPageClamped * REPEAT_PAGE_SIZE + REPEAT_PAGE_SIZE,
+  );
 
   if (loadError) return <div className="banner banner-error">Could not load orders: {loadError}</div>;
   if (!orders || !today || !periodStats) return <p className="page-sub">Loading orders…</p>;
@@ -293,6 +301,7 @@ export default function AdminPage() {
           <table className="orders-table">
             <thead>
               <tr>
+                <th>Order ID</th>
                 <th>When</th>
                 <th>Table</th>
                 <th>Customer</th>
@@ -307,13 +316,16 @@ export default function AdminPage() {
             <tbody>
               {filteredOrders.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ color: "var(--muted)" }}>
+                  <td colSpan={10} style={{ color: "var(--muted)" }}>
                     {orders.length === 0 ? "No orders yet." : "No orders match your filters."}
                   </td>
                 </tr>
               )}
               {pagedOrders.map((order) => (
                 <tr key={order.id}>
+                  <td title={order.id}>
+                    <code>{order.id.slice(0, 8).toUpperCase()}</code>
+                  </td>
                   <td>{formatDateTime(order.createdAt)}</td>
                   <td>{order.tableNumber ?? "—"}</td>
                   <td>
@@ -374,7 +386,7 @@ export default function AdminPage() {
 
       <div className="card" style={{ marginTop: 16 }}>
         <h2>Top repeat customers</h2>
-        <p className="page-sub">Customers with more than one order, ranked by visit count.</p>
+        <p className="page-sub">Every customer, grouped by phone number and ranked by visit count.</p>
         <div className="table-scroll">
           <table className="orders-table">
             <thead>
@@ -389,11 +401,11 @@ export default function AdminPage() {
               {repeatCustomers.length === 0 && (
                 <tr>
                   <td colSpan={4} style={{ color: "var(--muted)" }}>
-                    No repeat customers yet.
+                    No customers yet.
                   </td>
                 </tr>
               )}
-              {repeatCustomers.map((customer) => (
+              {pagedRepeatCustomers.map((customer) => (
                 <tr key={customer.phone}>
                   <td>{customer.name}</td>
                   <td>{customer.phone}</td>
@@ -406,6 +418,34 @@ export default function AdminPage() {
             </tbody>
           </table>
         </div>
+        {repeatCustomers.length > 0 && (
+          <div className="pagination-bar">
+            <span>
+              {repeatPageClamped * REPEAT_PAGE_SIZE + 1}–
+              {Math.min((repeatPageClamped + 1) * REPEAT_PAGE_SIZE, repeatCustomers.length)} of{" "}
+              {repeatCustomers.length}
+            </span>
+            <div className="pagination-controls">
+              <button
+                className="btn btn-small btn-secondary"
+                onClick={() => setRepeatPage((p) => Math.max(0, p - 1))}
+                disabled={repeatPageClamped === 0}
+              >
+                Prev
+              </button>
+              <span>
+                Page {repeatPageClamped + 1} of {repeatPageCount}
+              </span>
+              <button
+                className="btn btn-small btn-secondary"
+                onClick={() => setRepeatPage((p) => Math.min(repeatPageCount - 1, p + 1))}
+                disabled={repeatPageClamped >= repeatPageCount - 1}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

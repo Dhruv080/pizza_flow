@@ -155,8 +155,7 @@ export interface RepeatCustomer {
 /**
  * Customers ranked by how many paid orders they've placed, keyed by phone
  * number (names can vary in casing/spelling across visits, phone doesn't).
- * Only customers with more than one visit are "repeat" customers; single-visit
- * customers are excluded. Sorted by visit count, most first.
+ * Sorted by visit count, most first; ties broken by most recent visit.
  */
 export function computeRepeatCustomers(orders: CompletedOrder[]): RepeatCustomer[] {
   const byPhone = new Map<string, { name: string; visitCount: number; lastVisitAt: string }>();
@@ -174,6 +173,5 @@ export function computeRepeatCustomers(orders: CompletedOrder[]): RepeatCustomer
   }
   return [...byPhone.entries()]
     .map(([phone, v]) => ({ phone, ...v }))
-    .filter((c) => c.visitCount > 1)
-    .sort((a, b) => b.visitCount - a.visitCount);
+    .sort((a, b) => b.visitCount - a.visitCount || (a.lastVisitAt < b.lastVisitAt ? 1 : -1));
 }
