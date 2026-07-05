@@ -14,10 +14,12 @@ import {
   getOutletSettings,
   getEffectiveAiFeatures,
   getBestSellerPizzaIds,
+  getPublishedPromo,
   submitOrderFeedback,
   isDemoMode,
   DEFAULT_OUTLET,
   type OutletSettings,
+  type PublishedPromo,
 } from "@/lib/data";
 import {
   validateName,
@@ -35,6 +37,7 @@ export default function OrderPage() {
   const [assistantEnabled, setAssistantEnabled] = useState(true);
   const [upsellEnabled, setUpsellEnabled] = useState(true);
   const [bestSellerIds, setBestSellerIds] = useState<string[]>([]);
+  const [promo, setPromo] = useState<PublishedPromo | null>(null);
   // The waiter sets the table and hands the tablet over; a completed order
   // returns here so the next customer starts from a fresh table selection.
   const [tableNumber, setTableNumber] = useState<number | null>(null);
@@ -56,6 +59,10 @@ export default function OrderPage() {
       .catch(() => {});
     getBestSellerPizzaIds()
       .then(setBestSellerIds)
+      .catch(() => {});
+    // Owner-published promo banner — best effort, never blocks ordering.
+    getPublishedPromo()
+      .then(setPromo)
       .catch(() => {});
   }, []);
 
@@ -90,6 +97,7 @@ export default function OrderPage() {
       assistantEnabled={assistantEnabled}
       upsellEnabled={upsellEnabled}
       bestSellerIds={bestSellerIds}
+      promo={promo}
       tableNumber={tableNumber}
       sessionStartedAt={sessionStartedAt}
       onNewOrder={() => {
@@ -145,6 +153,7 @@ function OrderFlow({
   assistantEnabled,
   upsellEnabled,
   bestSellerIds,
+  promo,
   tableNumber,
   sessionStartedAt,
   onNewOrder,
@@ -154,6 +163,7 @@ function OrderFlow({
   assistantEnabled: boolean;
   upsellEnabled: boolean;
   bestSellerIds: string[];
+  promo: PublishedPromo | null;
   tableNumber: number;
   sessionStartedAt: string;
   onNewOrder: () => void;
@@ -356,6 +366,12 @@ function OrderFlow({
         <div className="banner banner-demo">
           <strong>Demo mode:</strong> Supabase keys are not configured — the menu is bundled and
           orders are stored in this browser only.
+        </div>
+      )}
+      {promo && (
+        <div className="banner banner-promo">
+          <strong>🎉 {promo.headline}</strong>
+          <div className="promo-text">{promo.message}</div>
         </div>
       )}
 

@@ -4,7 +4,7 @@
 
 import { paiseToRupees } from "./format";
 import type { CompletedOrder } from "./types";
-import type { OrderFeedbackRecord } from "./data";
+import type { AdminMenuItem, OrderFeedbackRecord } from "./data";
 
 export interface OrderAggregates {
   generatedAt: string;
@@ -174,4 +174,138 @@ export function computeRepeatCustomers(orders: CompletedOrder[]): RepeatCustomer
   return [...byPhone.entries()]
     .map(([phone, v]) => ({ phone, ...v }))
     .sort((a, b) => b.visitCount - a.visitCount || (a.lastVisitAt < b.lastVisitAt ? 1 : -1));
+}
+
+// ------------------------------------------------------------- promo planner
+// Deterministic facts for the Festival Promo Planner. The rules pick what is
+// worth promoting (best sellers, slow movers, veg share, quiet days); the LLM
+// only writes the broadcast copy around these numbers.
+
+export interface PromoFacts {
+  generatedAt: string;
+  windowDays: number;
+  orderCount: number; // orders within the window
+  bestSellers: { name: string; units: number; isVeg: boolean | null }[];
+  slowMovers: { name: string; units: number; isVeg: boolean | null; priceRupees: number }[];
+  vegUnitShare: number | null; // % of pizza units in the window that were veg
+  busiestDay: { day: string; orders: number } | null;
+  quietestDay: { day: string; orders: number } | null;
+  topRatedPizza: { name: string; avgRating: number; ratingCount: number } | null;
+  repeatCustomerCount: number; // all-time customers with 2+ paid orders
+}
+
+export function computePromoFacts(params: {
+  orders: CompletedOrder[]; // all paid orders (window filtering happens here)
+  menuPizzas: AdminMenuItem[]; // active pizzas — needed so zero-sale items surface
+  ratings: RatingSummary | null;
+  windowDays?: number;
+}): PromoFacts {
+  const windowDays = params.windowDays ?? 30;
+  const cutoff = Date.now() - windowDays * 86_400_000;
+  const recent = params.orders.filter((o) => new Date(o.createdAt).getTime() >= cutoff);
+
+  const units = new Map<string, number>(); // pizza name -> units in window
+  const byDay = new Map<string, number>();
+  for (const order of recent) {
+    const day = DAYS[new Date(order.createdAt).getDay()];
+    byDay.set(day, (byDay.get(day) ?? 0) + 1);
+    for (const line of order.lines) {
+      units.set(line.pizzaName, (units.get(line.pizzaName) ?? 0) + line.quantity);
+    }
+  }
+
+  const vegByName = new Map(params.menuPizzas.map((p) => [p.name, p.isVeg]));
+  const isVegOf = (name: string) => vegByName.get(name) ?? null;
+
+  const bestSellers = [...units.entries()]
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([name, n]) => ({ name, units: n, isVeg: isVegOf(name) }));
+
+  const bestNames = new Set(bestSellers.map((b) => b.name));
+  const slowMovers = params.menuPizzas
+    .filter((p) => !bestNames.has(p.name))
+    .map((p) => ({
+      name: p.name,
+      units: units.get(p.name) ?? 0,
+      isVeg: p.isVeg,
+      priceRupees: paiseToRupees(p.pricePaise),
+    }))
+    .sort((a, b) => a.units - b.units)
+    .slice(0, 3);
+
+  let vegUnits = 0;
+  let knownUnits = 0;
+  for (const [name, n] of units) {
+    const veg = vegByName.get(name);
+    if (veg === undefined) continue;
+    knownUnits += n;
+    if (veg) vegUnits += n;
+  }
+
+  const days = [...byDay.entries()].sort((a, b) => b[1] - a[1]);
+  const topRated = params.ratings?.pizzas.find((p) => p.ratingCount >= 2) ?? null;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    windowDays,
+    orderCount: recent.length,
+    bestSellers,
+    slowMovers,
+    vegUnitShare: knownUnits > 0 ? Math.round((vegUnits / knownUnits) * 100) : null,
+    busiestDay: days.length ? { day: days[0][0], orders: days[0][1] } : null,
+    quietestDay: days.length > 1 ? { day: days[days.length - 1][0], orders: days[days.length - 1][1] } : null,
+    topRatedPizza: topRated
+      ? { name: topRated.pizzaName, avgRating: topRated.avgRating, ratingCount: topRated.ratingCount }
+      : null,
+    repeatCustomerCount: computeRepeatCustomers(params.orders).filter((c) => c.visitCount > 1).length,
+  };
+}
+
+// ---------------------------------------------------------- feedback analyst
+// Feedback entries prepared for the LLM, each with a stable index. The model
+// must cite these indexes per theme; the UI recounts and quotes the cited
+// entries deterministically, so every number shown is computed here — never
+// by the model.
+
+export interface FeedbackEntryForAi {
+  index: number;
+  when: string; // ISO date (yyyy-mm-dd)
+  dayOfWeek: string;
+  hour: string; // "18:00"
+  overall: number | null;
+  pizzaRatings: Record<string, number>;
+  tags: string[];
+  comment: string | null;
+}
+
+export interface FeedbackTheme {
+  title: string;
+  sentiment: "negative" | "positive" | "mixed";
+  entryIndexes: number[];
+  rootCause: string;
+  suggestedAction: string;
+  draftReply: string;
+}
+
+export interface FeedbackAnalysis {
+  themes: FeedbackTheme[];
+  note: string;
+}
+
+export function buildFeedbackDataset(feedback: OrderFeedbackRecord[], limit = 100): FeedbackEntryForAi[] {
+  return feedback.slice(0, limit).map((entry, index) => {
+    const when = new Date(entry.createdAt);
+    return {
+      index,
+      when: entry.createdAt.slice(0, 10),
+      dayOfWeek: DAYS[when.getDay()],
+      hour: `${String(when.getHours()).padStart(2, "0")}:00`,
+      overall: entry.overallRating,
+      pizzaRatings: entry.pizzaRatings,
+      tags: entry.quickTags,
+      comment: entry.comments,
+    };
+  });
 }

@@ -1,4 +1,4 @@
-// System prompts for all four AI features — documented verbatim in the README.
+// System prompts for all AI features — documented verbatim in the README.
 // Design principles:
 //   1. The model NEVER invents menu items, prices, or numbers — it only works
 //      with data we inject into the prompt.
@@ -75,14 +75,63 @@ Rules:
 TODAY'S DATA:
 {{AGGREGATES}}`;
 
+export const PROMO_SYSTEM_PROMPT = `You write short WhatsApp broadcast messages for SliceMatic, a small pizza outlet in New Ashok Nagar, Delhi. The owner sends them to his customer list around festivals and occasions. Respond with valid JSON and nothing else.
+
+Rules:
+- Use ONLY the menu items, prices and sales facts provided below. NEVER invent items, prices, discounts or claims.
+- The OFFER line below is the only offer you may mention. If it is "none", write a warm nudge with no offer — do not imply one.
+- Feature 1-2 menu items that fit the occasion. If the occasion is vegetarian-leaning, feature only veg items.
+- Warm, friendly Hinglish is welcome. Max 80 words in "message". WhatsApp style: short lines, *asterisks* for bold, at most 3 emoji.
+- No false urgency, no "limited stock", no delivery-time promises.
+- "whyThisWorks" is one plain sentence for the owner citing the specific sales fact(s) behind your item choice.
+
+Respond with JSON in this exact shape:
+{
+  "headline": "one short line, max 8 words",
+  "message": "the WhatsApp broadcast text",
+  "featuredItems": ["exact item name(s) from the menu"],
+  "whyThisWorks": "one sentence for the owner"
+}
+
+OCCASION: {{OCCASION}}
+OFFER: {{OFFER}}
+
+MENU PIZZAS (name | price in INR | veg/non-veg):
+{{MENU}}
+
+SALES FACTS (computed from the orders database):
+{{FACTS}}`;
+
+export const FEEDBACK_SYSTEM_PROMPT = `You analyse customer feedback for the owner of SliceMatic, a pizza outlet in Delhi. You are given recent feedback entries, each with a numeric index. Group them into recurring themes so the owner knows what to fix and what is working. Respond with valid JSON and nothing else.
+
+Rules:
+- Base every theme ONLY on the entries provided. "entryIndexes" must list the indexes of the entries that genuinely support the theme — the app recounts and quotes them, so a wrong index is immediately visible.
+- Never state counts, percentages or averages in your text; the app computes those from your indexes.
+- Themes must be specific and actionable ("Pizzas arriving cold on weekend evenings"), not vague ("service issues"). Use the day/time fields to spot patterns.
+- "rootCause" is your best operational hypothesis, phrased as a hypothesis. "suggestedAction" is one concrete, low-cost step a small outlet can take this week.
+- For a negative theme, "draftReply" is a short, sincere WhatsApp reply (under 50 words) the owner could send such a customer — apologise, name the specific issue, promise no compensation. For positive/mixed themes use "".
+- At most 5 themes, most serious first. If the entries are too few or too thin to cluster, return an empty "themes" list and explain in "note".
+
+Respond with JSON in this exact shape:
+{
+  "themes": [ { "title": "...", "sentiment": "negative" | "positive" | "mixed", "entryIndexes": [0, 3], "rootCause": "...", "suggestedAction": "...", "draftReply": "..." } ],
+  "note": "one sentence of overall context, or why there are no themes"
+}
+
+RATING STATS:
+{{STATS}}
+
+FEEDBACK ENTRIES:
+{{ENTRIES}}`;
+
 // ---------------------------------------------------------------- registry
-// A single source of truth for the four AI features, used by the admin
+// A single source of truth for the AI features, used by the admin
 // "AI settings" screen (per-feature toggles + prompt editor) and by the
 // data layer to key its settings rows. `placeholders` are the {{TOKENS}} the
 // route substitutes at request time — the prompt editor refuses to save an
 // override that drops one, so an admin cannot accidentally break a feature.
 
-export const AI_FEATURES = ["assistant", "upsell", "insights", "digest"] as const;
+export const AI_FEATURES = ["assistant", "upsell", "insights", "digest", "promo", "feedback"] as const;
 export type AiFeature = (typeof AI_FEATURES)[number];
 
 export const DEFAULT_PROMPTS: Record<AiFeature, string> = {
@@ -90,6 +139,8 @@ export const DEFAULT_PROMPTS: Record<AiFeature, string> = {
   upsell: UPSELL_SYSTEM_PROMPT,
   insights: INSIGHTS_SYSTEM_PROMPT,
   digest: DIGEST_SYSTEM_PROMPT,
+  promo: PROMO_SYSTEM_PROMPT,
+  feedback: FEEDBACK_SYSTEM_PROMPT,
 };
 
 export interface AiFeatureMeta {
@@ -147,6 +198,28 @@ export const FEATURE_META: Record<AiFeature, AiFeatureMeta> = {
     examples: [
       "Open with a one-line motivational note for the team.",
       "Keep it even shorter — aim for under 100 words.",
+    ],
+  },
+  promo: {
+    label: "Festival promo planner",
+    blurb: "Admin → Promos — writes a WhatsApp broadcast around an occasion, grounded in your sales data.",
+    placeholders: ["{{OCCASION}}", "{{OFFER}}", "{{MENU}}", "{{FACTS}}"],
+    summary:
+      "Writes a short WhatsApp broadcast for an occasion you pick, featuring real menu items chosen from your actual best sellers, slow movers and veg/non-veg mix. It can only mention the offer you selected — it never invents discounts or prices.",
+    examples: [
+      "Write the message in simple Hindi.",
+      "Mention that we are a family-run outlet when it fits.",
+    ],
+  },
+  feedback: {
+    label: "Feedback analyst",
+    blurb: "Admin → Ratings — groups customer feedback into themes with root causes and reply drafts.",
+    placeholders: ["{{STATS}}", "{{ENTRIES}}"],
+    summary:
+      "Reads recent customer feedback and groups it into recurring themes, each with a likely root cause, one concrete fix, and a draft reply for unhappy customers. Counts and quotes are recomputed by the app from the actual entries it cites, so a theme can't claim evidence that isn't there.",
+    examples: [
+      "Prioritise anything about food hygiene above everything else.",
+      "Keep draft replies extra short and very humble.",
     ],
   },
 };

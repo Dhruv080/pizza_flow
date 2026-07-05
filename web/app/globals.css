@@ -108,6 +108,25 @@ label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
 .banner-demo { background: var(--amber-soft); border: 1px solid var(--amber); }
 .banner-error { background: var(--err-soft); border: 1px solid var(--err); color: var(--err); }
 .banner-ok { background: var(--ok-soft); border: 1px solid var(--ok); color: var(--ok); }
+.banner-promo { background: var(--amber-soft); border: 1px solid var(--amber); }
+.banner-promo .promo-text { white-space: pre-line; margin-top: 4px; }
+
+/* ---------- promo planner & feedback analyst ---------- */
+.wa-preview {
+  background: #e7ffdb; border: 1px solid #b8e0a8; border-radius: 12px;
+  padding: 14px 16px; white-space: pre-line; max-width: 520px;
+  color: #1f2d1f; font-size: 14px;
+}
+.theme-block { border-top: 1px solid rgba(0, 0, 0, 0.08); padding: 12px 0; }
+.theme-block:first-of-type { border-top: none; }
+.quote { font-style: italic; color: var(--muted); margin: 4px 0; font-size: 13.5px; }
+.sentiment {
+  display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px;
+  border-radius: 999px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.sentiment-negative { background: var(--err-soft); color: var(--err); }
+.sentiment-positive { background: var(--ok-soft); color: var(--ok); }
+.sentiment-mixed { background: var(--amber-soft); color: var(--amber); }
 
 /* ---------- order page layout ---------- */
 .order-grid { display: grid; grid-template-columns: 1fr 340px; gap: 20px; align-items: start; }

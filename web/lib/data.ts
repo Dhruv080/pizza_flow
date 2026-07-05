@@ -629,6 +629,78 @@ export async function getBestSellerPizzaIds(): Promise<string[]> {
   return data.map((row: { pizza_id: string }) => row.pizza_id);
 }
 
+// --------------------------------------------------------- published promo
+// The promo planner (Admin → Promos) can publish one AI-drafted broadcast as a
+// banner on the customer ordering page. What is stored is plain owner-approved
+// text — publishing/removing it is an explicit admin act, billing is never
+// affected, and the banner keeps showing even if the AI kill switch is later
+// turned off (it is content, not a live AI call). Stored as one JSON settings
+// row so it needs no schema change and no redeploy.
+
+export interface PublishedPromo {
+  headline: string;
+  message: string;
+  publishedAt: string;
+}
+
+const PROMO_SETTINGS_KEY = "promo_current";
+const DEMO_PROMO_KEY = "pizzaflow_demo_promo";
+
+function parsePromo(raw: string | null | undefined): PublishedPromo | null {
+  if (!raw) return null;
+  try {
+    const promo = JSON.parse(raw);
+    if (typeof promo?.headline === "string" && typeof promo?.message === "string" && promo.headline.trim()) {
+      return { headline: promo.headline, message: promo.message, publishedAt: promo.publishedAt ?? "" };
+    }
+  } catch {
+    /* corrupt row — treat as no promo */
+  }
+  return null;
+}
+
+/** The promo currently on the ordering page, or null. Never throws — a broken promo must not block ordering. */
+export async function getPublishedPromo(): Promise<PublishedPromo | null> {
+  if (isDemoMode) {
+    if (typeof localStorage === "undefined") return null;
+    return parsePromo(localStorage.getItem(DEMO_PROMO_KEY));
+  }
+  const { data, error } = await getSupabase()
+    .from("settings")
+    .select("value")
+    .eq("key", PROMO_SETTINGS_KEY)
+    .maybeSingle();
+  if (error) return null;
+  return parsePromo(data?.value);
+}
+
+export async function publishPromo(promo: { headline: string; message: string }): Promise<string | null> {
+  const headline = promo.headline.trim();
+  const message = promo.message.trim();
+  if (!headline || !message) return "The promo needs both a headline and a message.";
+  if (headline.length > 80) return "The headline must be at most 80 characters.";
+  if (message.length > 600) return "The message must be at most 600 characters.";
+
+  const record: PublishedPromo = { headline, message, publishedAt: new Date().toISOString() };
+  if (isDemoMode) {
+    if (typeof localStorage !== "undefined") localStorage.setItem(DEMO_PROMO_KEY, JSON.stringify(record));
+    return null;
+  }
+  const { error } = await getSupabase()
+    .from("settings")
+    .upsert({ key: PROMO_SETTINGS_KEY, value: JSON.stringify(record) });
+  return error ? error.message : null;
+}
+
+export async function clearPublishedPromo(): Promise<string | null> {
+  if (isDemoMode) {
+    if (typeof localStorage !== "undefined") localStorage.removeItem(DEMO_PROMO_KEY);
+    return null;
+  }
+  const { error } = await getSupabase().from("settings").delete().eq("key", PROMO_SETTINGS_KEY);
+  return error ? error.message : null;
+}
+
 // ---------------------------------------------------------------- settings
 
 export interface OutletSettings {
@@ -688,7 +760,7 @@ export async function saveOutletSettings(settings: OutletSettings): Promise<stri
 }
 
 // ------------------------------------------------------------- AI kill switch
-// A single toggle that turns off all four AI features at once — the answer
+// A single toggle that turns off every AI feature at once — the answer
 // to "what if this misbehaves, or you just want it off for a while". It is
 // enforced in TWO places: the UI hides the AI panels (this module, read by
 // the pages), and every /api/ai/* route re-checks it server-side before

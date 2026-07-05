@@ -2,13 +2,13 @@
 
 **FDE Programme · Batch C2 · Applied Project** — an AI consulting project for Rajan Sharma's
 SliceMatic pizza outlet (New Ashok Nagar, Delhi), replacing a Google Form + manual-billing
-workflow with a validated ordering system, a real database, and four AI features.
+workflow with a validated ordering system, a real database, and six AI features.
 
 | Stage | What | Where |
 |---|---|---|
 | 1 — Discovery & Scope | Pain points, AI opportunity map, scope, user-flow diagram | [`docs/stage1/`](docs/stage1/) (PDF + HTML) |
 | 2 — Working MVP | Crash-proof CLI ordering system, file-driven menu, order log | [`stage2/`](stage2/) |
-| 3 — Full-stack app | Next.js on Vercel + Supabase + 4 AI features via OpenRouter | [`web/`](web/) |
+| 3 — Full-stack app | Next.js on Vercel + Supabase + 6 AI features via OpenRouter | [`web/`](web/) |
 | Submission bundle | Everything packaged per the brief | [`submissions/`](submissions/) |
 
 ---
@@ -19,12 +19,15 @@ workflow with a validated ordering system, a real database, and four AI features
                        ┌────────────────────────────────────────────┐
                        │              Vercel (Next.js)              │
   Customer / staff ───▶│  /        ordering UI (single page, live   │
-                       │           bill, AI assistant, AI upsell)   │
+                       │           bill, AI assistant, AI upsell,   │
+                       │           owner-published promo banner)    │
   Admin ──────────────▶│  /admin        dashboard + End-of-day AI   │
                        │  /admin/menu   menu management (CRUD)      │
+                       │  /admin/promos festival promo planner (AI) │
+                       │  /admin/ratings feedback + AI analyst      │
                        │  /admin/settings/{account,outlet,ai}       │
                        │  floating 🍕  Insights Copilot (all pages) │
-                       │  /api/ai/* 4 server routes — the ONLY      │
+                       │  /api/ai/* 6 server routes — the ONLY      │
                        │           place the OpenRouter key exists  │
                        └───────┬───────────────────────┬────────────┘
                                │ supabase-js (RLS)      │ HTTPS
@@ -66,7 +69,7 @@ Principles we can defend line by line:
   are editable from Admin → Settings → Outlet — header, welcome screen, and invoices update
   without a code change or redeploy. Admin accounts are generic (`admin@…`), not tied to a
   person, and the login screen never hints at a valid username or password.
-- **One-switch AI kill switch.** Admin → Settings → AI turns off all four AI features at
+- **One-switch AI kill switch.** Admin → Settings → AI turns off all six AI features at
   once. It is enforced twice: the UI hides the AI panels, and every `/api/ai/*` route
   independently re-checks the same `settings.ai_enabled` flag server-side before calling
   OpenRouter — so the switch can't be bypassed by calling the API directly.
@@ -152,10 +155,10 @@ four env vars, deploy.
 
 ---
 
-## The AI features (all four, via OpenRouter)
+## The AI features (all six, via OpenRouter)
 
 System prompts are documented verbatim in [`web/lib/prompts.ts`](web/lib/prompts.ts) —
-one file, four prompts, each stating what data the model may use and what to do when a
+one file, six prompts, each stating what data the model may use and what to do when a
 request is out of scope.
 
 1. **Owner Insights Copilot** (floating 🍕 widget on every admin page) — the admin asks
@@ -173,8 +176,23 @@ request is out of scope.
    "no suggestion". Measurable by acceptance rate and incremental topping revenue.
 4. **End-of-Day Digest** (`/admin`) — one click, one ~150-word manager's report on today's
    trading, written by the LLM from today's aggregates only.
+5. **Festival Promo Planner** (`/admin/promos`) — the rules pick every input: an Indian
+   occasion calendar ([`web/lib/occasions.ts`](web/lib/occasions.ts)) suggests what's
+   coming up (Shravan and Navratri are flagged veg-leaning — the veg/non-veg menu tags
+   feed straight in), `computePromoFacts` extracts best sellers, slow movers, veg share
+   and quiet days from the orders table, and the owner picks the offer from a fixed list.
+   The LLM only writes the WhatsApp broadcast copy, in strict JSON; featured items are
+   re-validated against the menu and it may not mention any offer except the one selected.
+   One click publishes the approved text as a banner on the ordering page (a `settings`
+   row — no redeploy) — billing rules are never touched.
+6. **Feedback Analyst** (`/admin/ratings`) — clusters recent customer feedback into
+   actionable themes ("pizzas arriving cold on weekend evenings"), each with a root-cause
+   hypothesis, one low-cost fix, and a draft WhatsApp reply. The LLM cites feedback
+   entries by *index*; the route validates the indexes and the UI recomputes every count
+   and quote from the actual entries — a theme cannot claim evidence that isn't there,
+   and an unsubstantiated theme is dropped server-side.
 
-**Model: `openai/gpt-4o-mini` — why.** All four features are small, structured tasks
+**Model: `openai/gpt-4o-mini` — why.** All six features are small, structured tasks
 (JSON mapping and short narration over injected data), not deep reasoning. GPT-4o-mini has
 reliable JSON-mode output, low latency (a counter queue can't wait on a slow model), and
 costs a fraction of a paisa per order — the AI cost of an order is ~1000× smaller than its
