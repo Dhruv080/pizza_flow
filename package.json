@@ -1,29 +1,13 @@
 {
-  "name": "pizzaflow-web",
+  "name": "pizzaflow-root",
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000 -H 0.0.0.0",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "db:setup": "node scripts/db-setup.mjs",
-    "admin:create": "node scripts/create-admin.mjs"
-  },
-  "dependencies": {
-    "@google/genai": "^2.10.0",
-    "@supabase/supabase-js": "^2.47.0",
-    "next": "^15.3.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "eslint": "^9.39.4",
-    "eslint-config-next": "^16.2.10",
-    "pg": "^8.13.0",
-    "typescript": "^5.6.0"
+    "dev": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "start": "npm --prefix web run start",
+    "lint": "npm --prefix web run lint",
+    "db:setup": "npm --prefix web run db:setup",
+    "admin:create": "npm --prefix web run admin:create"
   }
 }
