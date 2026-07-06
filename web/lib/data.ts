@@ -59,7 +59,7 @@ export async function getMenu(): Promise<Menu> {
 
   const { data, error } = await getSupabase()
     .from("menu_items")
-    .select("id, category, name, price, is_veg")
+    .select("id, category, name, price, is_veg, allowed_base_ids, allowed_topping_ids")
     .eq("is_active", true)
     .order("category")
     .order("name");
@@ -71,12 +71,16 @@ export async function getMenu(): Promise<Menu> {
     name: string;
     price: number;
     is_veg: boolean;
+    allowed_base_ids: string[] | null;
+    allowed_topping_ids: string[] | null;
   }): MenuItem => ({
     id: row.id,
     category: row.category as MenuItem["category"],
     name: row.name,
     pricePaise: rupeesToPaise(row.price),
     isVeg: row.is_veg,
+    allowedBaseIds: row.allowed_base_ids ?? [],
+    allowedToppingIds: row.allowed_topping_ids ?? [],
   });
 
   const items = (data ?? []).map(toItem);
@@ -105,6 +109,9 @@ export interface AdminMenuItem {
   pricePaise: number;
   isActive: boolean;
   isVeg: boolean;
+  // Meaningful only for category === "pizza" — see MenuItem in ./types.
+  allowedBaseIds: string[];
+  allowedToppingIds: string[];
 }
 
 const DEMO_MENU_ITEMS_KEY = "pizzaflow_demo_menu_items";
@@ -116,11 +123,35 @@ function seedDemoMenuItems(): AdminMenuItem[] {
   }));
 }
 
+/**
+ * Backfill for items saved before combo tagging existed: a pizza with no
+ * allowed-base/topping arrays yet gets every current base/topping (matching
+ * the schema.sql/seed.sql backfill), so nothing goes dark on upgrade. Bases
+ * and toppings themselves don't use these fields.
+ */
+function migrateDemoMenuItems(items: AdminMenuItem[]): AdminMenuItem[] {
+  const allBaseIds = items.filter((i) => i.category === "base").map((i) => i.id);
+  const allToppingIds = items.filter((i) => i.category === "topping").map((i) => i.id);
+  let changed = false;
+  const migrated = items.map((item) => {
+    if (item.category !== "pizza") return { ...item, allowedBaseIds: [], allowedToppingIds: [] };
+    if (item.allowedBaseIds && item.allowedToppingIds) return item;
+    changed = true;
+    return {
+      ...item,
+      allowedBaseIds: item.allowedBaseIds ?? allBaseIds,
+      allowedToppingIds: item.allowedToppingIds ?? allToppingIds,
+    };
+  });
+  if (changed) saveDemoMenuItems(migrated);
+  return migrated;
+}
+
 function loadDemoMenuItems(): AdminMenuItem[] {
   if (typeof localStorage === "undefined") return seedDemoMenuItems();
   try {
     const raw = localStorage.getItem(DEMO_MENU_ITEMS_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) return migrateDemoMenuItems(JSON.parse(raw));
   } catch {
     /* fall through to reseed */
   }
@@ -140,12 +171,18 @@ function validateMenuItemInput(name: string, price: number): string | null {
   return null;
 }
 
+/** Dedupe and drop ids that no longer reference a real item of that category. */
+function sanitizeAllowedIds(ids: string[] | undefined, validIds: string[]): string[] {
+  const validSet = new Set(validIds);
+  return [...new Set(ids ?? [])].filter((id) => validSet.has(id));
+}
+
 export async function getAllMenuItems(): Promise<AdminMenuItem[]> {
   if (isDemoMode) return loadDemoMenuItems();
 
   const { data, error } = await getSupabase()
     .from("menu_items")
-    .select("id, category, name, price, is_active, is_veg")
+    .select("id, category, name, price, is_active, is_veg, allowed_base_ids, allowed_topping_ids")
     .order("category")
     .order("name");
   if (error) throw dbError("Could not load menu items", error);
@@ -156,7 +193,26 @@ export async function getAllMenuItems(): Promise<AdminMenuItem[]> {
     pricePaise: rupeesToPaise(row.price),
     isActive: row.is_active,
     isVeg: row.is_veg,
+    allowedBaseIds: row.allowed_base_ids ?? [],
+    allowedToppingIds: row.allowed_topping_ids ?? [],
   }));
+}
+
+/** Appends `newId` onto every pizza's allowed-base/topping array (skips rows that already have it). */
+async function appendIdToAllPizzas(
+  supabase: ReturnType<typeof getSupabase>,
+  column: "allowed_base_ids" | "allowed_topping_ids",
+  newId: string
+): Promise<void> {
+  const { data: pizzas } = await supabase.from("menu_items").select(`id, ${column}`).eq("category", "pizza");
+  for (const row of (pizzas ?? []) as any[]) {
+    const current: string[] = row[column] ?? [];
+    if (current.includes(newId)) continue;
+    await supabase
+      .from("menu_items")
+      .update({ [column]: [...current, newId] })
+      .eq("id", row.id);
+  }
 }
 
 export async function createMenuItem(input: {
@@ -164,6 +220,9 @@ export async function createMenuItem(input: {
   name: string;
   priceRupees: number;
   isVeg: boolean;
+  allowedBaseIds?: string[]; // pizza only
+  allowedToppingIds?: string[]; // pizza only
+  allowOnAllPizzas?: boolean; // base/topping only — default true
 }): Promise<string | null> {
   const validationError = validateMenuItemInput(input.name, input.priceRupees);
   if (validationError) return validationError;
@@ -174,29 +233,89 @@ export async function createMenuItem(input: {
     if (items.some((i) => i.category === input.category && i.name.toLowerCase() === name.toLowerCase())) {
       return "An item with this name already exists in this category.";
     }
+
+    let allowedBaseIds: string[] = [];
+    let allowedToppingIds: string[] = [];
+    if (input.category === "pizza") {
+      const validBaseIds = items.filter((i) => i.category === "base").map((i) => i.id);
+      const validToppingIds = items.filter((i) => i.category === "topping").map((i) => i.id);
+      allowedBaseIds = sanitizeAllowedIds(input.allowedBaseIds, validBaseIds);
+      if (allowedBaseIds.length === 0) return "Select at least one allowed base.";
+      allowedToppingIds = sanitizeAllowedIds(input.allowedToppingIds, validToppingIds);
+    }
+
+    const id = generateUUID();
     items.push({
-      id: generateUUID(),
+      id,
       category: input.category,
       name,
       pricePaise: rupeesToPaise(input.priceRupees),
       isActive: true,
       isVeg: input.isVeg,
+      allowedBaseIds,
+      allowedToppingIds,
     });
+
+    if ((input.category === "base" || input.category === "topping") && input.allowOnAllPizzas !== false) {
+      const field = input.category === "base" ? "allowedBaseIds" : "allowedToppingIds";
+      for (const item of items) {
+        if (item.category === "pizza" && !item[field].includes(id)) item[field].push(id);
+      }
+    }
+
     saveDemoMenuItems(items);
     return null;
   }
 
-  const { error } = await getSupabase()
+  const supabase = getSupabase();
+
+  if (input.category === "pizza") {
+    const [{ data: bases }, { data: toppings }] = await Promise.all([
+      supabase.from("menu_items").select("id").eq("category", "base"),
+      supabase.from("menu_items").select("id").eq("category", "topping"),
+    ]);
+    const allowedBaseIds = sanitizeAllowedIds(input.allowedBaseIds, (bases ?? []).map((b: any) => b.id));
+    if (allowedBaseIds.length === 0) return "Select at least one allowed base.";
+    const allowedToppingIds = sanitizeAllowedIds(input.allowedToppingIds, (toppings ?? []).map((t: any) => t.id));
+
+    const { error } = await supabase.from("menu_items").insert({
+      category: input.category,
+      name,
+      price: input.priceRupees,
+      is_veg: input.isVeg,
+      allowed_base_ids: allowedBaseIds,
+      allowed_topping_ids: allowedToppingIds,
+    });
+    if (!error) return null;
+    if (error.code === "23505") return "An item with this name already exists in this category.";
+    return error.message;
+  }
+
+  const { data: inserted, error } = await supabase
     .from("menu_items")
-    .insert({ category: input.category, name, price: input.priceRupees, is_veg: input.isVeg });
-  if (!error) return null;
-  if (error.code === "23505") return "An item with this name already exists in this category.";
-  return error.message;
+    .insert({ category: input.category, name, price: input.priceRupees, is_veg: input.isVeg })
+    .select("id")
+    .single();
+  if (error) {
+    if (error.code === "23505") return "An item with this name already exists in this category.";
+    return error.message;
+  }
+  if (input.allowOnAllPizzas !== false && inserted) {
+    const column = input.category === "base" ? "allowed_base_ids" : "allowed_topping_ids";
+    await appendIdToAllPizzas(supabase, column, inserted.id);
+  }
+  return null;
 }
 
 export async function updateMenuItem(
   id: string,
-  input: { name: string; priceRupees: number; isVeg: boolean }
+  input: {
+    name: string;
+    priceRupees: number;
+    isVeg: boolean;
+    allowedBaseIds?: string[]; // pizza only — omit for base/topping edits
+    allowedToppingIds?: string[]; // pizza only
+  }
 ): Promise<string | null> {
   const validationError = validateMenuItemInput(input.name, input.priceRupees);
   if (validationError) return validationError;
@@ -206,6 +325,16 @@ export async function updateMenuItem(
     const items = loadDemoMenuItems();
     const item = items.find((i) => i.id === id);
     if (!item) return "Item not found.";
+    if (input.allowedBaseIds !== undefined) {
+      const validBaseIds = items.filter((i) => i.category === "base").map((i) => i.id);
+      const allowedBaseIds = sanitizeAllowedIds(input.allowedBaseIds, validBaseIds);
+      if (allowedBaseIds.length === 0) return "Select at least one allowed base.";
+      item.allowedBaseIds = allowedBaseIds;
+    }
+    if (input.allowedToppingIds !== undefined) {
+      const validToppingIds = items.filter((i) => i.category === "topping").map((i) => i.id);
+      item.allowedToppingIds = sanitizeAllowedIds(input.allowedToppingIds, validToppingIds);
+    }
     item.name = name;
     item.pricePaise = rupeesToPaise(input.priceRupees);
     item.isVeg = input.isVeg;
@@ -213,10 +342,20 @@ export async function updateMenuItem(
     return null;
   }
 
-  const { error } = await getSupabase()
-    .from("menu_items")
-    .update({ name, price: input.priceRupees, is_veg: input.isVeg })
-    .eq("id", id);
+  const supabase = getSupabase();
+  const fields: Record<string, unknown> = { name, price: input.priceRupees, is_veg: input.isVeg };
+  if (input.allowedBaseIds !== undefined) {
+    const { data: bases } = await supabase.from("menu_items").select("id").eq("category", "base");
+    const allowedBaseIds = sanitizeAllowedIds(input.allowedBaseIds, (bases ?? []).map((b: any) => b.id));
+    if (allowedBaseIds.length === 0) return "Select at least one allowed base.";
+    fields.allowed_base_ids = allowedBaseIds;
+  }
+  if (input.allowedToppingIds !== undefined) {
+    const { data: toppings } = await supabase.from("menu_items").select("id").eq("category", "topping");
+    fields.allowed_topping_ids = sanitizeAllowedIds(input.allowedToppingIds, (toppings ?? []).map((t: any) => t.id));
+  }
+
+  const { error } = await supabase.from("menu_items").update(fields).eq("id", id);
   if (!error) return null;
   if (error.code === "23505") return "An item with this name already exists in this category.";
   return error.message;

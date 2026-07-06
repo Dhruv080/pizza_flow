@@ -30,6 +30,22 @@ create table if not exists menu_items (
 -- Upgrade path for databases created before veg/non-veg tagging existed.
 alter table menu_items add column if not exists is_veg boolean not null default true;
 
+-- Upgrade path for databases created before per-pizza base/topping combo tagging
+-- existed. NULL/absent means "nothing allowed" (meaningful only on pizza rows;
+-- ignored for bases/toppings) — the backfill below fills every existing pizza
+-- with every base/topping so nothing goes dark on upgrade, and only touches
+-- rows still NULL so it never undoes an admin's later narrowing.
+alter table menu_items add column if not exists allowed_base_ids uuid[];
+alter table menu_items add column if not exists allowed_topping_ids uuid[];
+
+update menu_items set allowed_base_ids = (
+  select coalesce(array_agg(id), '{}') from menu_items where category = 'base'
+) where category = 'pizza' and allowed_base_ids is null;
+
+update menu_items set allowed_topping_ids = (
+  select coalesce(array_agg(id), '{}') from menu_items where category = 'topping'
+) where category = 'pizza' and allowed_topping_ids is null;
+
 -- ---------------------------------------------------------------- orders
 -- Lifecycle: 'placed' from the first "Confirm and order" click (payment_mode
 -- still null — the customer may add more pizzas and confirm again, each time

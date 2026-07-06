@@ -37,3 +37,14 @@ insert into menu_items (category, name, price, is_veg) values
   ('topping', 'Roasted Garlic', 49, true),
   ('topping', 'Peri-Peri Drizzle', 59, true)
 on conflict (category, name) do update set price = excluded.price, is_active = true, is_veg = excluded.is_veg;
+
+-- Freshly seeded pizzas start with every base/topping allowed (NULL-only
+-- backfill, so re-running this file never undoes an admin's later narrowing
+-- of a pizza's allowed combinations).
+update menu_items set allowed_base_ids = (
+  select coalesce(array_agg(id), '{}') from menu_items where category = 'base'
+) where category = 'pizza' and allowed_base_ids is null;
+
+update menu_items set allowed_topping_ids = (
+  select coalesce(array_agg(id), '{}') from menu_items where category = 'topping'
+) where category = 'pizza' and allowed_topping_ids is null;

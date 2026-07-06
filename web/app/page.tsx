@@ -229,6 +229,22 @@ function OrderFlow({
   const selectedBase = menu.bases.find((b) => b.id === baseId);
   const selectedPizza = menu.pizzas.find((p) => p.id === pizzaId);
   const selectedToppings = menu.toppings.filter((t) => toppingIds.includes(t.id));
+  // A pizza's allowed lists are authoritative: an id NOT in the list is not
+  // orderable with it. Only active items reach `menu`, so filtering against
+  // it also drops any allowed base/topping the admin has since deactivated.
+  const allowedBases = selectedPizza
+    ? menu.bases.filter((b) => selectedPizza.allowedBaseIds.includes(b.id))
+    : [];
+  const allowedToppings = selectedPizza
+    ? menu.toppings.filter((t) => selectedPizza.allowedToppingIds.includes(t.id))
+    : [];
+
+  function selectPizza(pizza: MenuItem) {
+    setPizzaId(pizza.id);
+    // Drop any base/topping selection that doesn't carry over to the new pizza.
+    setBaseId((prev) => (pizza.allowedBaseIds.includes(prev) ? prev : ""));
+    setToppingIds((prev) => prev.filter((id) => pizza.allowedToppingIds.includes(id)));
+  }
 
   // Live price preview for the "Add to cart" button. Quantity always starts
   // at 1 here — the cart's − n + steppers own quantity from then on.
@@ -245,12 +261,15 @@ function OrderFlow({
     const pizza = menu.pizzas.find((p) => p.id === pizzaId);
     if (!base) return setBuilderError("Please choose a base.");
     if (!pizza) return setBuilderError("Please choose a pizza.");
+    if (!pizza.allowedBaseIds.includes(base.id)) {
+      return setBuilderError(`${base.name} is not available for ${pizza.name}.`);
+    }
     const totalResult = validateTotalQuantity(bill.totalQuantity + 1);
     if (!totalResult.ok) return setBuilderError(totalResult.error);
 
     const toppings = toppingIds
       .map((id) => menu.toppings.find((t) => t.id === id))
-      .filter((t): t is MenuItem => Boolean(t));
+      .filter((t): t is MenuItem => t !== undefined && pizza.allowedToppingIds.includes(t.id));
     setCart((prev) => [...prev, { base, pizza, toppings, quantity: 1 }]);
     // Reset the builder so the next pizza starts fresh.
     setPizzaId("");
@@ -467,22 +486,31 @@ function OrderFlow({
               ))}
             </div>
             <div className="icard-grid">
-              {visiblePizzas.map((item) => (
-                <button
-                  key={item.id}
-                  className={`icard ${pizzaId === item.id ? "selected" : ""}`}
-                  onClick={() => setPizzaId(item.id)}
-                >
-                  <span className="veg-tag icard-veg-tag">
-                    <span className={`veg-dot ${item.isVeg ? "" : "nonveg"}`} aria-hidden="true" />
-                  </span>
-                  {bestSellerIds.includes(item.id) && (
-                    <span className="best-seller-tag">★ Best seller</span>
-                  )}
-                  <span className="icard-name">{item.name}</span>
-                  <span className="icard-price">{formatPaise(item.pricePaise)}</span>
-                </button>
-              ))}
+              {visiblePizzas.map((item) => {
+                // A pizza with no currently-active allowed base can never be
+                // completed — grey it out rather than let it dead-end the flow.
+                const orderable = menu.bases.some((b) => item.allowedBaseIds.includes(b.id));
+                return (
+                  <button
+                    key={item.id}
+                    className={`icard ${pizzaId === item.id ? "selected" : ""}`}
+                    onClick={() => orderable && selectPizza(item)}
+                    disabled={!orderable}
+                    style={!orderable ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+                  >
+                    <span className="veg-tag icard-veg-tag">
+                      <span className={`veg-dot ${item.isVeg ? "" : "nonveg"}`} aria-hidden="true" />
+                    </span>
+                    {bestSellerIds.includes(item.id) && (
+                      <span className="best-seller-tag">★ Best seller</span>
+                    )}
+                    <span className="icard-name">{item.name}</span>
+                    <span className="icard-price">
+                      {orderable ? formatPaise(item.pricePaise) : "Currently unavailable"}
+                    </span>
+                  </button>
+                );
+              })}
               {visiblePizzas.length === 0 && (
                 <p className="page-sub" style={{ gridColumn: "1 / -1" }}>
                   No pizzas match this filter.
@@ -500,7 +528,7 @@ function OrderFlow({
                   <span className="step-no">1</span> Pick a base <small>required</small>
                 </p>
                 <div className="icard-grid compact">
-                  {menu.bases.map((item) => (
+                  {allowedBases.map((item) => (
                     <button
                       key={item.id}
                       className={`icard ${baseId === item.id ? "selected" : ""}`}
@@ -510,13 +538,18 @@ function OrderFlow({
                       <span className="icard-price">+ {formatPaise(item.pricePaise)}</span>
                     </button>
                   ))}
+                  {allowedBases.length === 0 && (
+                    <p className="page-sub" style={{ gridColumn: "1 / -1" }}>
+                      No base is currently available for this pizza.
+                    </p>
+                  )}
                 </div>
 
                 <p className="step-label">
                   <span className="step-no">2</span> Add toppings <small>optional</small>
                 </p>
                 <div className="chip-row">
-                  {menu.toppings.map((item) => (
+                  {allowedToppings.map((item) => (
                     <button
                       key={item.id}
                       className={`chip ${toppingIds.includes(item.id) ? "selected" : ""}`}
@@ -841,16 +874,19 @@ function AiAssistant({
         return;
       }
 
-      // Re-validate everything the model proposed against the real menu (and cart).
+      // Re-validate everything the model proposed against the real menu (and cart),
+      // including that the pizza's own allowed-base/topping lists are respected —
+      // an id not in that list is dropped just like an unknown id would be.
       const lines: CartLine[] = [];
       for (const draft of payload.lines ?? []) {
         const base = menu.bases.find((b) => b.id === draft.baseId);
         const pizza = menu.pizzas.find((p) => p.id === draft.pizzaId);
         const qtyResult = validateQuantity(draft.quantity);
         if (!base || !pizza || !qtyResult.ok) continue; // drop anything invalid
+        if (!pizza.allowedBaseIds.includes(base.id)) continue; // drop disallowed base/pizza combo
         const toppings = (draft.toppingIds ?? [])
           .map((id: string) => menu.toppings.find((t) => t.id === id))
-          .filter((t: MenuItem | undefined): t is MenuItem => Boolean(t));
+          .filter((t: MenuItem | undefined): t is MenuItem => t !== undefined && pizza.allowedToppingIds.includes(t.id));
         lines.push({ base, pizza, toppings, quantity: qtyResult.value });
       }
 
@@ -858,8 +894,9 @@ function AiAssistant({
       for (const update of payload.cartUpdates ?? []) {
         const cartIndex = update?.cartIndex;
         if (typeof cartIndex !== "number" || cartIndex < 0 || cartIndex >= cart.length) continue;
-        const addToppingIds = ((update.addToppingIds ?? []) as string[]).filter((id) =>
-          menu.toppings.some((t) => t.id === id)
+        const targetPizza = cart[cartIndex].pizza;
+        const addToppingIds = ((update.addToppingIds ?? []) as string[]).filter(
+          (id) => menu.toppings.some((t) => t.id === id) && targetPizza.allowedToppingIds.includes(id)
         );
         const removeToppingIds = ((update.removeToppingIds ?? []) as string[]).filter((id) =>
           menu.toppings.some((t) => t.id === id)
@@ -924,11 +961,20 @@ function UpsellSuggestion({
   const [suggestion, setSuggestion] = useState<{ topping: MenuItem; reason: string } | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const cartKey = cart.map((l) => `${l.pizza.id}:${l.quantity}`).join("|");
+  // The suggestion is applied to the last cart line, so it can only ever
+  // offer toppings that pizza actually allows and doesn't already have.
+  const lastLine = cart[cart.length - 1];
+  const candidateToppings = lastLine
+    ? menu.toppings.filter(
+        (t) => lastLine.pizza.allowedToppingIds.includes(t.id) && !lastLine.toppings.some((existing) => existing.id === t.id)
+      )
+    : [];
 
   useEffect(() => {
     let cancelled = false;
     setSuggestion(null);
     setDismissed(false);
+    if (!lastLine || candidateToppings.length === 0) return;
     const timer = setTimeout(async () => {
       try {
         const response = await fetch("/api/ai/upsell", {
@@ -941,12 +987,13 @@ function UpsellSuggestion({
               toppingNames: l.toppings.map((t) => t.name),
               quantity: l.quantity,
             })),
-            toppings: menu.toppings,
+            toppings: candidateToppings,
           }),
         });
         if (!response.ok || cancelled) return;
         const payload = await response.json();
-        const topping = menu.toppings.find((t) => t.id === payload.toppingId);
+        // Re-check against the same candidate list sent, not the full menu.
+        const topping = candidateToppings.find((t) => t.id === payload.toppingId);
         if (topping && payload.reason && !cancelled) {
           setSuggestion({ topping, reason: payload.reason });
         }

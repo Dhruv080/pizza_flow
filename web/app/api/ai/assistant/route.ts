@@ -54,9 +54,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "A message and the menu are required" }, { status: 400 });
   }
 
-  const menuText = [...menu.bases, ...menu.pizzas, ...menu.toppings]
-    .map((i) => `${i.id} | ${i.name} | ${(i.pricePaise / 100).toFixed(2)}`)
-    .join("\n");
+  const menuText = [
+    ...menu.bases.map((i) => `${i.id} | ${i.name} | ${(i.pricePaise / 100).toFixed(2)}`),
+    // Each pizza also lists exactly which base/topping ids it may be paired
+    // with — the model must never propose a combination outside these.
+    ...menu.pizzas.map(
+      (i) =>
+        `${i.id} | ${i.name} | ${(i.pricePaise / 100).toFixed(2)} | bases: ${i.allowedBaseIds.join(",") || "none"} | toppings: ${i.allowedToppingIds.join(",") || "none"}`
+    ),
+    ...menu.toppings.map((i) => `${i.id} | ${i.name} | ${(i.pricePaise / 100).toFixed(2)}`),
+  ].join("\n");
 
   const cartText = cart.length
     ? cart

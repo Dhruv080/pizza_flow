@@ -10,6 +10,12 @@ export interface MenuItem {
   name: string;
   pricePaise: number;
   isVeg: boolean;
+  // Meaningful only when category === "pizza": the base/topping ids this
+  // pizza may be ordered with. An id NOT in this list is not allowed — there
+  // is no "untagged means anything goes" fallback. Empty (never null once
+  // loaded) for base/topping rows.
+  allowedBaseIds: string[];
+  allowedToppingIds: string[];
 }
 
 export interface Menu {
