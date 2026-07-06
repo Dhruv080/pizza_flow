@@ -78,7 +78,7 @@ export default function OutletSettingsPage() {
             type="number"
             min={1}
             max={50}
-            value={outlet.tableCount || 30}
+            value={outlet.tableCount || 15}
             onChange={(e) => {
               const val = Math.max(1, Math.min(50, parseInt(e.target.value, 10) || 1));
               setOutlet({ ...outlet, tableCount: val });

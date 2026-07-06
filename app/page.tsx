@@ -5,7 +5,7 @@
 // an optional shortcut that fills the same validated cart.
 
 import { useEffect, useMemo, useState } from "react";
-import { computeBill, unitPricePaise, DISCOUNT_THRESHOLD, DISCOUNT_RATE } from "@/lib/billing";
+import { computeBill, unitPricePaise, DISCOUNT_THRESHOLD, DISCOUNT_RATE, getWaitlistDiscountPercent, type PromoOffer } from "@/lib/billing";
 import { formatPaise } from "@/lib/format";
 import {
   confirmOrder,
@@ -17,7 +17,11 @@ import {
   submitOrderFeedback,
   isDemoMode,
   DEFAULT_OUTLET,
+  getDbDineInTables,
+  releaseDineInTable,
+  getActiveOrderForTable,
   type OutletSettings,
+  type DbDineInTable,
 } from "@/lib/data";
 import {
   validateName,
@@ -40,6 +44,10 @@ export default function OrderPage() {
   const [tableNumber, setTableNumber] = useState<number | null>(null);
   const [sessionStartedAt, setSessionStartedAt] = useState("");
   const [sessionKey, setSessionKey] = useState(0);
+
+  const [seatedCustomerName, setSeatedCustomerName] = useState("");
+  const [offerTier, setOfferTier] = useState<string | null>(null);
+  const [offerIncentive, setOfferIncentive] = useState<string | null>(null);
 
   useEffect(() => {
     getMenu()
@@ -75,9 +83,12 @@ export default function OrderPage() {
       <TableGate
         outletName={outlet.name}
         tableCount={outlet.tableCount || TABLE_COUNT}
-        onStart={(table) => {
+        onStart={(table, name, tier, incentive) => {
           setTableNumber(table);
           setSessionStartedAt(new Date().toISOString());
+          setSeatedCustomerName(name || "");
+          setOfferTier(tier || null);
+          setOfferIncentive(incentive || null);
         }}
       />
     );
@@ -93,24 +104,67 @@ export default function OrderPage() {
       bestSellerIds={bestSellerIds}
       tableNumber={tableNumber}
       sessionStartedAt={sessionStartedAt}
+      seatedCustomerName={seatedCustomerName}
+      offerTier={offerTier}
+      offerIncentive={offerIncentive}
       onNewOrder={() => {
         setTableNumber(null);
         setSessionKey((k) => k + 1);
+        setSeatedCustomerName("");
+        setOfferTier(null);
+        setOfferIncentive(null);
       }}
     />
   );
 }
 
-function TableGate({ outletName, tableCount, onStart }: { outletName: string; tableCount: number; onStart: (table: number) => void }) {
+function TableGate({
+  outletName,
+  tableCount,
+  onStart,
+}: {
+  outletName: string;
+  tableCount: number;
+  onStart: (table: number, name?: string | null, tier?: string | null, incentive?: string | null) => void;
+}) {
   const [table, setTable] = useState("");
+  const [dineInTables, setDineInTables] = useState<Record<number, DbDineInTable>>({});
+  const [isConfirmedOccupant, setIsConfirmedOccupant] = useState(false);
+
+  useEffect(() => {
+    getDbDineInTables()
+      .then(setDineInTables)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setIsConfirmedOccupant(false);
+  }, [table]);
+
+  const handleStart = async () => {
+    const tableNum = parseInt(table, 10);
+    if (isNaN(tableNum)) return;
+    const info = dineInTables[tableNum];
+    onStart(
+      tableNum,
+      info?.customerName || null,
+      info?.offerTier || null,
+      info?.offerIncentive || null
+    );
+  };
+
+  const tableNum = parseInt(table, 10);
+  const info = !isNaN(tableNum) ? dineInTables[tableNum] : null;
+  const isButtonDisabled = !table || (info && !isConfirmedOccupant);
+
   return (
     <div className="gate">
-      <div className="card gate-card">
+      <div className="card gate-card" style={{ maxWidth: 440, width: "100%" }}>
         <span className="brand-mark" style={{ fontSize: 42 }}>
           🍕
         </span>
         <h1>Welcome to {outletName}</h1>
-        <p className="page-sub">Staff: select the table, then hand the tablet to the customer.</p>
+        <p className="page-sub">Select your table to view the menu and start ordering.</p>
         <div className="field" style={{ textAlign: "left" }}>
           <label htmlFor="table">Table number</label>
           <select
@@ -120,20 +174,90 @@ function TableGate({ outletName, tableCount, onStart }: { outletName: string; ta
             onChange={(e) => setTable(e.target.value)}
           >
             <option value="">Select a table…</option>
-            {Array.from({ length: tableCount }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>
-                Table {n}
-              </option>
-            ))}
+            {Array.from({ length: tableCount }, (_, i) => i + 1).map((n) => {
+              const info = dineInTables[n];
+              let label = `Table ${n}`;
+              if (info) {
+                const statusLabel = info.status === "reserved" ? "Reserved" : "Seated";
+                label += ` (${statusLabel}: ${info.customerName})`;
+              }
+              return (
+                <option key={n} value={n}>
+                  {label}
+                </option>
+              );
+            })}
           </select>
         </div>
+
+        {info && (
+          <div style={{
+            marginTop: "16px",
+            padding: "16px",
+            borderRadius: "12px",
+            border: "1px solid #ea580c",
+            background: "rgba(234, 88, 12, 0.05)",
+            textAlign: "left",
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px"
+          }}>
+            <h3 style={{
+              fontSize: "0.95rem",
+              fontWeight: "700",
+              color: "#ea580c",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              margin: 0
+            }}>
+              ⚠️ Table {table} is Occupied
+            </h3>
+            <p style={{ fontSize: "0.85rem", margin: 0, lineHeight: "1.4", color: "var(--text-color)" }}>
+              This table currently has an active session under the name <strong>&ldquo;{info.customerName}&rdquo;</strong>.
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "4px" }}>
+              <label style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "10px",
+                cursor: "pointer",
+                fontSize: "0.85rem",
+                userSelect: "none"
+              }}>
+                <input
+                  type="checkbox"
+                  checked={isConfirmedOccupant}
+                  onChange={(e) => {
+                    setIsConfirmedOccupant(e.target.checked);
+                  }}
+                  style={{ marginTop: "3px" }}
+                />
+                <div>
+                  <strong style={{ display: "block" }}>I am part of this group</strong>
+                  <span style={{ color: "var(--muted)", fontSize: "0.75rem" }}>
+                    Join this active session to add items to the shared bill.
+                  </span>
+                </div>
+              </label>
+            </div>
+          </div>
+        )}
+
         <button
           className="btn"
-          style={{ width: "100%" }}
-          disabled={!table}
-          onClick={() => onStart(parseInt(table, 10))}
+          style={{ width: "100%", marginTop: "16px" }}
+          disabled={isButtonDisabled}
+          onClick={handleStart}
         >
-          {table ? `Start order for Table ${table}` : "Select a table to begin"}
+          {table
+            ? info
+              ? isConfirmedOccupant
+                ? `Join Table ${table} Session`
+                : `Please confirm selection for Table ${table}`
+              : `Start order for Table ${table}`
+            : "Select a table to begin"}
         </button>
       </div>
     </div>
@@ -148,6 +272,9 @@ function OrderFlow({
   bestSellerIds,
   tableNumber,
   sessionStartedAt,
+  seatedCustomerName,
+  offerTier,
+  offerIncentive,
   onNewOrder,
 }: {
   menu: Menu;
@@ -157,10 +284,13 @@ function OrderFlow({
   bestSellerIds: string[];
   tableNumber: number;
   sessionStartedAt: string;
+  seatedCustomerName: string;
+  offerTier: string | null;
+  offerIncentive: string | null;
   onNewOrder: () => void;
 }) {
   // customer
-  const [name, setName] = useState("");
+  const [name, setName] = useState(seatedCustomerName || "");
   const [phone, setPhone] = useState("");
   const [nameError, setNameError] = useState("");
   const [phoneError, setPhoneError] = useState("");
@@ -187,7 +317,74 @@ function OrderFlow({
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState("");
 
-  const bill = useMemo(() => computeBill(cart), [cart]);
+  const [appliedPromo, setAppliedPromo] = useState<PromoOffer | null>(null);
+  const [promoOffers, setPromoOffers] = useState<PromoOffer[]>([]);
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [promoError, setPromoError] = useState("");
+  const [promoSuccess, setPromoSuccess] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("pizzaflow_promo_offers");
+      if (stored) {
+        try {
+          setPromoOffers(JSON.parse(stored));
+        } catch {}
+      }
+    }
+  }, []);
+
+  // Load active order on mount (to support multi-device/joining active session)
+  useEffect(() => {
+    getActiveOrderForTable(tableNumber)
+      .then((activeOrder) => {
+        if (activeOrder) {
+          setOrderId(activeOrder.id);
+          if (activeOrder.customerName) setName(activeOrder.customerName);
+          if (activeOrder.phone) setPhone(activeOrder.phone);
+          
+          // Reconstruct the cart
+          const reconstructed: CartLine[] = [];
+          for (const line of activeOrder.lines) {
+            let base = menu.bases.find((b) => b.id === line.baseId);
+            if (!base && line.baseName) {
+              base = menu.bases.find((b) => b.name === line.baseName);
+            }
+            let pizza = menu.pizzas.find((p) => p.id === line.pizzaId);
+            if (!pizza && line.pizzaName) {
+              pizza = menu.pizzas.find((p) => p.name === line.pizzaName);
+            }
+            if (base && pizza) {
+              const toppings: MenuItem[] = [];
+              if (line.toppingIds && line.toppingIds.length) {
+                for (const tid of line.toppingIds) {
+                  const t = menu.toppings.find((x) => x.id === tid);
+                  if (t) toppings.push(t);
+                }
+              } else if (line.toppingNames && line.toppingNames.length) {
+                for (const tname of line.toppingNames) {
+                  const t = menu.toppings.find((x) => x.name === tname);
+                  if (t) toppings.push(t);
+                }
+              }
+              reconstructed.push({
+                base,
+                pizza,
+                toppings,
+                quantity: line.quantity,
+              });
+            }
+          }
+          if (reconstructed.length > 0) {
+            setCart(reconstructed);
+            setConfirmedCount(reconstructed.length);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [tableNumber, menu]);
+
+  const bill = useMemo(() => computeBill(cart, appliedPromo?.code || null, offerTier, offerIncentive), [cart, appliedPromo, offerTier, offerIncentive]);
   const pendingLines = cart.slice(confirmedCount);
 
   const selectedBase = menu.bases.find((b) => b.id === baseId);
@@ -295,6 +492,9 @@ function OrderFlow({
         sessionStartedAt,
         cart,
         newLines: pendingLines,
+        offerTier,
+        offerIncentive,
+        appliedPromoCode: appliedPromo?.code || null,
       });
       setOrderId(id);
       setConfirmedCount(cart.length);
@@ -333,6 +533,9 @@ function OrderFlow({
         cart,
         newLines: cart.slice(confirmedCount),
         paymentMode,
+        offerTier,
+        offerIncentive,
+        appliedPromoCode: appliedPromo?.code || null,
       });
       setReceipt(order);
     } catch (error) {
@@ -353,6 +556,24 @@ function OrderFlow({
       <p className="page-sub">
         Pick from the menu or just tell the assistant what you feel like eating.
       </p>
+
+      {offerTier && offerIncentive && (
+        <div className="banner banner-ok" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", margin: "16px 0", padding: "12px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ fontSize: "1.4rem" }}>🎁</span>
+            <div>
+              <strong style={{ display: "block" }}>Waitlist Loyalty Reward Activated!</strong>
+              <span style={{ fontSize: "0.85rem", opacity: 0.9 }}>
+                You have been seated with the <strong>{offerTier} Tier</strong> waitlist offer: <em>{offerIncentive}</em>. Your reward is tracked and will be applied to this session!
+              </span>
+            </div>
+          </div>
+          <span className="badge" style={{ background: "rgba(22, 163, 74, 0.15)", color: "#16a34a", padding: "4px 8px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: "700", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+            Active Offer
+          </span>
+        </div>
+      )}
+
       {isDemoMode && (
         <div className="banner banner-demo">
           <strong>Demo mode:</strong> Supabase keys are not configured — the menu is bundled and
@@ -507,6 +728,142 @@ function OrderFlow({
         </div>
 
         <div className="bill-panel">
+          {/* Promo code card */}
+          <div className="card" style={{ marginBottom: "16px" }}>
+            <h2 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0, fontSize: "1.1rem" }}>
+              🏷️ Promotional Offers
+            </h2>
+            <p className="page-sub" style={{ margin: "4px 0 12px 0", fontSize: "0.85rem" }}>
+              Select or enter a coupon code to apply discounts to your order.
+            </p>
+            
+            {/* Promo Code Input Box */}
+            <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+              <input
+                type="text"
+                placeholder="PROMO CODE"
+                className="input"
+                style={{ flex: 1, textTransform: "uppercase", fontSize: "0.85rem" }}
+                value={promoCodeInput}
+                onChange={(e) => {
+                  setPromoCodeInput(e.target.value.toUpperCase());
+                  setPromoError("");
+                  setPromoSuccess("");
+                }}
+              />
+              <button
+                className="btn btn-secondary"
+                style={{ padding: "6px 12px", fontSize: "0.85rem" }}
+                onClick={() => {
+                  const code = promoCodeInput.trim().toUpperCase();
+                  if (!code) return;
+                  const found = promoOffers.find((o) => o.code === code);
+                  if (found) {
+                    setAppliedPromo(found);
+                    setPromoSuccess(`Coupon "${code}" applied!`);
+                    setPromoError("");
+                  } else {
+                    setPromoError(`Invalid code: "${code}"`);
+                    setPromoSuccess("");
+                  }
+                }}
+              >
+                Apply
+              </button>
+            </div>
+
+            {promoError && <p style={{ color: "#dc2626", fontSize: "0.8rem", margin: "4px 0" }}>⚠️ {promoError}</p>}
+            {promoSuccess && <p style={{ color: "#16a34a", fontSize: "0.8rem", margin: "4px 0" }}>✓ {promoSuccess}</p>}
+
+            {appliedPromo && (
+              <div style={{
+                background: "rgba(22, 163, 74, 0.08)",
+                border: "1px solid #16a34a",
+                borderRadius: "8px",
+                padding: "8px 12px",
+                marginBottom: "12px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center"
+              }}>
+                <div>
+                  <strong style={{ color: "#16a34a", fontSize: "0.85rem" }}>Active Coupon: {appliedPromo.code}</strong>
+                  <p style={{ margin: 0, fontSize: "0.75rem", opacity: 0.9 }}>{appliedPromo.description}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setAppliedPromo(null);
+                    setPromoCodeInput("");
+                    setPromoSuccess("");
+                  }}
+                  style={{ color: "#dc2626", background: "none", border: "none", cursor: "pointer", fontSize: "0.8rem", fontWeight: "600" }}
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+
+            {/* List of active available coupons */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <span style={{ fontSize: "0.7rem", fontWeight: "bold", textTransform: "uppercase", color: "var(--text-muted)" }}>
+                Available Coupons
+              </span>
+              {promoOffers.length === 0 ? (
+                <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: 0 }}>No active promotional offers right now.</p>
+              ) : (
+                promoOffers.map((offer) => {
+                  const isApplied = appliedPromo?.id === offer.id;
+                  const isEligible = (bill.subtotalPaise / 100) >= offer.minCartValue;
+                  return (
+                    <div
+                      key={offer.id}
+                      onClick={() => {
+                        setAppliedPromo(offer);
+                        setPromoCodeInput(offer.code);
+                        setPromoSuccess(`Coupon "${offer.code}" applied!`);
+                        setPromoError("");
+                      }}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        border: isApplied
+                          ? "1px solid #16a34a"
+                          : "1px solid var(--border-color)",
+                        background: isApplied
+                          ? "rgba(22, 163, 74, 0.03)"
+                          : "rgba(0, 0, 0, 0.02)",
+                        cursor: "pointer",
+                        transition: "all 0.2s ease-in-out",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "2px"
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{
+                          fontWeight: "bold",
+                          fontSize: "0.8rem",
+                          color: isApplied ? "#16a34a" : "var(--accent)"
+                        }}>
+                          {offer.code}
+                        </span>
+                        {isApplied && (
+                          <span style={{ fontSize: "0.75rem", color: "#16a34a", fontWeight: "bold" }}>Applied</span>
+                        )}
+                        {!isApplied && !isEligible && (
+                          <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Min ₹{offer.minCartValue}</span>
+                        )}
+                      </div>
+                      <p style={{ margin: 0, fontSize: "0.75rem", color: "var(--text-color)", opacity: 0.85 }}>
+                        {offer.description}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
           <div className="card">
             <h2>Your order</h2>
             {cart.length === 0 ? (
@@ -583,7 +940,11 @@ function OrderFlow({
                   {bill.discountPaise > 0 ? (
                     <div className="bill-row discount">
                       <span>
-                        Bulk discount ({DISCOUNT_RATE * 100}% for {DISCOUNT_THRESHOLD} or more)
+                        {bill.discountType === "loyalty"
+                          ? `Loyalty Offer: ${offerTier} (${getWaitlistDiscountPercent(offerTier, offerIncentive)}% OFF)`
+                          : bill.discountType === "promo"
+                          ? `Coupon Discount (${bill.appliedPromoName})`
+                          : `Bulk discount (${DISCOUNT_RATE * 100}% for ${DISCOUNT_THRESHOLD} or more)`}
                       </span>
                       <span>-{formatPaise(bill.discountPaise)}</span>
                     </div>
@@ -883,12 +1244,35 @@ function Receipt({
         <p>
           Subtotal <span style={{ float: "right" }}>{formatPaise(order.subtotalPaise)}</span>
         </p>
-        {order.discountPaise > 0 && (
-          <p>
-            Bulk discount (10%){" "}
-            <span style={{ float: "right" }}>-{formatPaise(order.discountPaise)}</span>
-          </p>
-        )}
+        {order.discountPaise > 0 && (() => {
+          const totalQuantity = order.lines.reduce((sum, l) => sum + l.quantity, 0);
+          const bulkDiscount = totalQuantity >= DISCOUNT_THRESHOLD ? Math.round(order.subtotalPaise * DISCOUNT_RATE) : 0;
+          const loyaltyPercent = getWaitlistDiscountPercent(order.offerTier || null, order.offerIncentive || null);
+          const loyaltyDiscount = loyaltyPercent > 0 ? Math.round(order.subtotalPaise * (loyaltyPercent / 100)) : 0;
+          
+          let label = "Discount";
+          if (order.discountPaise === loyaltyDiscount && loyaltyDiscount > 0) {
+            label = `Loyalty Offer: ${order.offerTier} (${loyaltyPercent}% OFF)`;
+          } else if (order.discountPaise === bulkDiscount && bulkDiscount > 0) {
+            label = `Bulk discount (${DISCOUNT_RATE * 100}% for ${DISCOUNT_THRESHOLD} or more)`;
+          } else if (order.appliedPromoCode) {
+            label = `Promo Discount (${order.appliedPromoCode})`;
+          } else {
+            if (loyaltyDiscount > 0) {
+              label = `Loyalty Offer: ${order.offerTier} (${loyaltyPercent}% OFF)`;
+            } else if (order.appliedPromoCode) {
+              label = `Promo Discount (${order.appliedPromoCode})`;
+            } else {
+              label = `Bulk discount (${DISCOUNT_RATE * 100}%)`;
+            }
+          }
+          return (
+            <p>
+              {label}{" "}
+              <span style={{ float: "right" }}>-{formatPaise(order.discountPaise)}</span>
+            </p>
+          );
+        })()}
         <p>
           GST (18%) <span style={{ float: "right" }}>{formatPaise(order.gstPaise)}</span>
         </p>

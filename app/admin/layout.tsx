@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import AdminNav from "@/components/AdminNav";
 import InsightsChatWidget from "@/components/InsightsChatWidget";
-import { adminSignIn, adminSignOut, getAdminSession, getEffectiveAiFeatures } from "@/lib/data";
+import { adminSignIn, adminSignOut, getAdminSession, getEffectiveAiFeatures, getAdminEmail } from "@/lib/data";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [checked, setChecked] = useState(false);
@@ -21,38 +21,61 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
 
   useEffect(() => {
-    getAdminSession().then((ok) => {
-      setSignedIn(ok);
-      setChecked(true);
-    });
+    getAdminSession()
+      .then((ok) => {
+        setSignedIn(ok);
+        if (ok) {
+          getAdminEmail().then((emailStr) => {
+            let role: "admin" | "manager" = "admin";
+            if (emailStr) {
+              role = emailStr.toLowerCase().includes("manager") ? "manager" : "admin";
+            } else if (typeof window !== "undefined") {
+              const savedEmail = localStorage.getItem("pizzaflow_demo_admin_email") || "admin";
+              role = savedEmail.toLowerCase().includes("manager") ? "manager" : "admin";
+            }
+            setActiveRole(role);
+            localStorage.setItem("pizzaflow_admin_role", role);
+            setChecked(true);
+          });
+        } else {
+          setChecked(true);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to check admin session:", err);
+        setSignedIn(false);
+        setChecked(true);
+      });
   }, []);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const savedRole = localStorage.getItem("pizzaflow_admin_role") || "admin";
-      setActiveRole(savedRole as "admin" | "manager");
-    }
-  }, [signedIn]);
-
-  useEffect(() => {
     if (!signedIn) return;
-    getEffectiveAiFeatures().then((features) => {
-      setInsightsEnabled(features.insights);
-      setDigestEnabled(features.digest);
-    });
+    getEffectiveAiFeatures()
+      .then((features) => {
+        setInsightsEnabled(features.insights);
+        setDigestEnabled(features.digest);
+      })
+      .catch((err) => {
+        console.error("Failed to load AI features:", err);
+      });
   }, [signedIn]);
 
   useEffect(() => {
-    if (signedIn && activeRole === "manager" && pathname !== "/admin") {
-      router.push("/admin");
+    if (
+      signedIn &&
+      activeRole === "manager" &&
+      pathname !== "/admin/seating" &&
+      pathname !== "/admin/settings/outlet"
+    ) {
+      router.push("/admin/seating");
     }
   }, [signedIn, activeRole, pathname, router]);
 
   const handleRoleChange = (newRole: "admin" | "manager") => {
     localStorage.setItem("pizzaflow_admin_role", newRole);
     setActiveRole(newRole);
-    if (newRole === "manager" && pathname !== "/admin") {
-      router.push("/admin");
+    if (newRole === "manager" && pathname !== "/admin/seating" && pathname !== "/admin/settings/outlet") {
+      router.push("/admin/seating");
     }
   };
 
@@ -60,7 +83,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (!signedIn) {
     return (
       <Login
-        onSignedIn={(role) => {
+        onSignedIn={(role, emailStr) => {
+          localStorage.setItem("pizzaflow_demo_admin_email", emailStr);
           localStorage.setItem("pizzaflow_admin_role", role);
           setActiveRole(role);
           setSignedIn(true);
@@ -76,6 +100,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         onRoleChange={handleRoleChange}
         onSignOut={async () => {
           await adminSignOut();
+          localStorage.removeItem("pizzaflow_demo_admin_email");
+          localStorage.removeItem("pizzaflow_admin_role");
           setSignedIn(false);
         }}
       />
@@ -87,7 +113,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   );
 }
 
-function Login({ onSignedIn }: { onSignedIn: (role: "admin" | "manager") => void }) {
+function Login({ onSignedIn }: { onSignedIn: (role: "admin" | "manager", email: string) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -103,7 +129,7 @@ function Login({ onSignedIn }: { onSignedIn: (role: "admin" | "manager") => void
       setError(message);
     } else {
       const resolvedRole = email.toLowerCase().includes("manager") ? "manager" : "admin";
-      onSignedIn(resolvedRole);
+      onSignedIn(resolvedRole, email);
     }
   }
 
@@ -112,6 +138,32 @@ function Login({ onSignedIn }: { onSignedIn: (role: "admin" | "manager") => void
       <div className="card">
         <h1>Admin login</h1>
         <p className="page-sub">Authorised staff only.</p>
+        
+        <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
+          <button
+            type="button"
+            className={`btn btn-small ${email.toLowerCase().includes("admin") ? "" : "btn-secondary"}`}
+            style={{ flex: 1, padding: "8px", fontSize: "0.85rem" }}
+            onClick={() => {
+              setEmail("admin");
+              setPassword("admin123");
+            }}
+          >
+            👤 Admin Preset
+          </button>
+          <button
+            type="button"
+            className={`btn btn-small ${email.toLowerCase().includes("manager") ? "" : "btn-secondary"}`}
+            style={{ flex: 1, padding: "8px", fontSize: "0.85rem" }}
+            onClick={() => {
+              setEmail("manager");
+              setPassword("manager123");
+            }}
+          >
+            💼 Manager Preset
+          </button>
+        </div>
+
         <form onSubmit={submit}>
           <div className="field">
             <label htmlFor="email">Email or username</label>

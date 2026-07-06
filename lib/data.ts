@@ -279,8 +279,11 @@ export async function confirmOrder(params: {
   sessionStartedAt: string;
   cart: CartLine[]; // full cart so far (confirmed + newLines) — bill totals reflect this
   newLines: CartLine[]; // just the not-yet-persisted lines to insert this call
+  offerTier?: string | null;
+  offerIncentive?: string | null;
+  appliedPromoCode?: string | null;
 }): Promise<string> {
-  const bill = computeBill(params.cart);
+  const bill = computeBill(params.cart, params.appliedPromoCode, params.offerTier, params.offerIncentive);
 
   if (isDemoMode) {
     const records = loadDemoOrderRecords();
@@ -294,6 +297,8 @@ export async function confirmOrder(params: {
       existing.discountPaise = bill.discountPaise;
       existing.gstPaise = bill.gstPaise;
       existing.totalPaise = bill.totalPaise;
+      existing.offerTier = params.offerTier || null;
+      existing.offerIncentive = params.offerIncentive || null;
       saveDemoOrderRecords(records);
       return existing.id;
     }
@@ -312,6 +317,8 @@ export async function confirmOrder(params: {
       totalPaise: bill.totalPaise,
       paymentMode: null,
       status: "placed",
+      offerTier: params.offerTier || null,
+      offerIncentive: params.offerIncentive || null,
     });
     saveDemoOrderRecords(records);
     return id;
@@ -326,6 +333,8 @@ export async function confirmOrder(params: {
     discount: paiseToRupees(bill.discountPaise),
     gst: paiseToRupees(bill.gstPaise),
     total: paiseToRupees(bill.totalPaise),
+    offer_tier: params.offerTier || null,
+    offer_incentive: params.offerIncentive || null,
   };
 
   if (!params.orderId) {
@@ -390,6 +399,9 @@ export async function finishAndPayOrder(params: {
   cart: CartLine[];
   newLines: CartLine[]; // any still-unconfirmed lines — confirmed here if present
   paymentMode: PaymentMode;
+  offerTier?: string | null;
+  offerIncentive?: string | null;
+  appliedPromoCode?: string | null;
 }): Promise<CompletedOrder> {
   const orderId =
     !params.orderId || params.newLines.length > 0
@@ -401,10 +413,14 @@ export async function finishAndPayOrder(params: {
           sessionStartedAt: params.sessionStartedAt,
           cart: params.cart,
           newLines: params.newLines,
+          offerTier: params.offerTier,
+          offerIncentive: params.offerIncentive,
+          appliedPromoCode: params.appliedPromoCode,
         })
       : params.orderId;
 
-  const bill = computeBill(params.cart);
+  const bill = computeBill(params.cart, params.appliedPromoCode, params.offerTier, params.offerIncentive);
+
   const order: CompletedOrder = {
     id: orderId,
     createdAt: new Date().toISOString(),
@@ -418,6 +434,9 @@ export async function finishAndPayOrder(params: {
     gstPaise: bill.gstPaise,
     totalPaise: bill.totalPaise,
     paymentMode: params.paymentMode,
+    offerTier: params.offerTier || null,
+    offerIncentive: params.offerIncentive || null,
+    appliedPromoCode: params.appliedPromoCode || null,
   };
 
   if (isDemoMode) {
@@ -430,6 +449,8 @@ export async function finishAndPayOrder(params: {
       existing.discountPaise = bill.discountPaise;
       existing.gstPaise = bill.gstPaise;
       existing.totalPaise = bill.totalPaise;
+      existing.offerTier = params.offerTier || null;
+      existing.offerIncentive = params.offerIncentive || null;
       saveDemoOrderRecords(records);
     }
     return order;
@@ -442,6 +463,8 @@ export async function finishAndPayOrder(params: {
     discount: paiseToRupees(bill.discountPaise),
     gst: paiseToRupees(bill.gstPaise),
     total: paiseToRupees(bill.totalPaise),
+    offer_tier: params.offerTier || null,
+    offer_incentive: params.offerIncentive || null,
   });
 
   return order;
@@ -686,7 +709,7 @@ export const DEFAULT_OUTLET: OutletSettings = {
   name: "SliceMatic",
   location: "New Ashok Nagar, Delhi",
   phone: "",
-  tableCount: 30,
+  tableCount: 15,
 };
 
 const DEMO_SETTINGS_KEY = "pizzaflow_demo_settings";
@@ -720,7 +743,7 @@ export async function saveOutletSettings(settings: OutletSettings): Promise<stri
   const name = settings.name.trim();
   const location = settings.location.trim();
   const phone = settings.phone.trim();
-  const tableCount = settings.tableCount || 30;
+  const tableCount = settings.tableCount || 15;
   if (!name) return "The outlet name cannot be empty.";
   if (name.length > 40) return "The outlet name must be at most 40 characters.";
   if (location.length > 200) return "The address must be at most 200 characters.";
@@ -1075,6 +1098,398 @@ export async function adminSignOut(): Promise<void> {
 
 export async function getAdminSession(): Promise<boolean> {
   if (isDemoMode) return true;
-  const { data } = await getSupabase().auth.getSession();
-  return Boolean(data.session);
+  try {
+    const { data } = await getSupabase().auth.getSession();
+    return Boolean(data.session);
+  } catch (err) {
+    console.error("Error in getAdminSession:", err);
+    return false;
+  }
+}
+
+// ------------------------------------------------------------- Seating & Waitlist
+
+export interface DbWaitlistEntry {
+  id: string;
+  customerName: string;
+  phone: string;
+  groupSize: number;
+  joinedAt: string;
+  timeOffsetMinutes: number;
+}
+
+export interface DbDineInTable {
+  tableNumber: number;
+  capacity: number;
+  status: "vacant" | "occupied" | "reserved";
+  customerName?: string | null;
+  groupSize?: number | null;
+  seatedAt?: string | null;
+}
+
+const DEMO_WAITLIST_KEY = "pizzaflow_admin_waitlist";
+const DEMO_MANUAL_TABLES_KEY = "pizzaflow_admin_manual_tables";
+
+export async function getDbWaitlist(): Promise<DbWaitlistEntry[]> {
+  if (isDemoMode) {
+    if (typeof localStorage === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(DEMO_WAITLIST_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  const { data, error } = await getSupabase()
+    .from("waitlist")
+    .select("id, customer_name, phone, group_size, joined_at, time_offset_minutes")
+    .eq("status", "waiting")
+    .order("joined_at", { ascending: true });
+
+  if (error || !data) return [];
+
+  return data.map((row: any) => ({
+    id: row.id,
+    customerName: row.customer_name,
+    phone: row.phone,
+    groupSize: row.group_size,
+    joinedAt: row.joined_at,
+    timeOffsetMinutes: row.time_offset_minutes,
+  }));
+}
+
+export async function addDbWaitlistEntry(entry: DbWaitlistEntry): Promise<string | null> {
+  if (isDemoMode) {
+    if (typeof localStorage === "undefined") return null;
+    try {
+      const current = await getDbWaitlist();
+      const updated = [...current, entry];
+      localStorage.setItem(DEMO_WAITLIST_KEY, JSON.stringify(updated));
+    } catch (err: any) {
+      return err.message;
+    }
+    return null;
+  }
+
+  const { error } = await getSupabase()
+    .from("waitlist")
+    .insert({
+      id: entry.id,
+      customer_name: entry.customerName,
+      phone: entry.phone,
+      group_size: entry.groupSize,
+      joined_at: entry.joinedAt,
+      time_offset_minutes: entry.timeOffsetMinutes,
+      status: "waiting",
+    });
+
+  return error ? error.message : null;
+}
+
+export async function updateWaitlistTimeOffset(id: string, timeOffsetMinutes: number): Promise<string | null> {
+  if (isDemoMode) {
+    if (typeof localStorage === "undefined") return null;
+    try {
+      const current = await getDbWaitlist();
+      const updated = current.map((entry) =>
+        entry.id === id ? { ...entry, timeOffsetMinutes } : entry
+      );
+      localStorage.setItem(DEMO_WAITLIST_KEY, JSON.stringify(updated));
+    } catch (err: any) {
+      return err.message;
+    }
+    return null;
+  }
+
+  const { error } = await getSupabase()
+    .from("waitlist")
+    .update({ time_offset_minutes: timeOffsetMinutes })
+    .eq("id", id);
+
+  return error ? error.message : null;
+}
+
+export async function removeWaitlistEntry(
+  id: string,
+  status: "seated" | "cancelled",
+  seatedTableNumber?: number | null,
+  seatedAt?: string | null
+): Promise<string | null> {
+  if (isDemoMode) {
+    if (typeof localStorage === "undefined") return null;
+    try {
+      const current = await getDbWaitlist();
+      const updated = current.filter((entry) => entry.id !== id);
+      localStorage.setItem(DEMO_WAITLIST_KEY, JSON.stringify(updated));
+    } catch (err: any) {
+      return err.message;
+    }
+    return null;
+  }
+
+  const { error } = await getSupabase()
+    .from("waitlist")
+    .update({
+      status,
+      seated_table_number: seatedTableNumber ?? null,
+      seated_at: seatedAt ?? null,
+    })
+    .eq("id", id);
+
+  return error ? error.message : null;
+}
+
+export interface DbDineInTable {
+  customerName: string;
+  groupSize: number;
+  seatedAt: string | null;
+  status: "occupied" | "reserved";
+  offerTier?: string | null;
+  offerIncentive?: string | null;
+}
+
+export async function getDbDineInTables(): Promise<Record<number, DbDineInTable>> {
+  if (isDemoMode) {
+    if (typeof localStorage === "undefined") return {};
+    try {
+      const raw = localStorage.getItem(DEMO_MANUAL_TABLES_KEY);
+      const record: Record<number, DbDineInTable> = raw ? JSON.parse(raw) : {};
+
+      const activeOrders = loadDemoOrderRecords().filter((o) => o.status === "placed");
+      for (const o of activeOrders) {
+        if (o.tableNumber !== null) {
+          record[o.tableNumber] = {
+            customerName: o.customerName,
+            groupSize: record[o.tableNumber]?.groupSize || 2,
+            seatedAt: o.sessionStartedAt || o.createdAt,
+            status: "occupied",
+            offerTier: record[o.tableNumber]?.offerTier || null,
+            offerIncentive: record[o.tableNumber]?.offerIncentive || null,
+          };
+        }
+      }
+      return record;
+    } catch {
+      return {};
+    }
+  }
+
+  const { data, error } = await getSupabase()
+    .from("dine_in_tables")
+    .select("table_number, capacity, status, customer_name, group_size, seated_at, offer_tier, offer_incentive")
+    .in("status", ["occupied", "reserved"])
+    .order("table_number");
+
+  if (error || !data) return {};
+
+  const record: Record<number, DbDineInTable> = {};
+  for (const row of data) {
+    if (row.customer_name) {
+      record[row.table_number] = {
+        customerName: row.customer_name,
+        groupSize: row.group_size || 2,
+        seatedAt: row.seated_at,
+        status: (row.status === "reserved" ? "reserved" : "occupied") as "occupied" | "reserved",
+        offerTier: row.offer_tier,
+        offerIncentive: row.offer_incentive,
+      };
+    }
+  }
+
+  try {
+    const { data: orderData, error: orderError } = await getSupabase()
+      .from("orders")
+      .select("created_at, session_started_at, customer_name, table_number, offer_tier, offer_incentive")
+      .eq("status", "placed")
+      .not("table_number", "is", null);
+
+    if (!orderError && orderData) {
+      for (const row of orderData) {
+        if (row.table_number) {
+          record[row.table_number] = {
+            customerName: row.customer_name,
+            groupSize: record[row.table_number]?.groupSize || 2,
+            seatedAt: row.session_started_at || row.created_at,
+            status: "occupied",
+            offerTier: row.offer_tier || record[row.table_number]?.offerTier || null,
+            offerIncentive: row.offer_incentive || record[row.table_number]?.offerIncentive || null,
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error fetching active orders in getDbDineInTables:", err);
+  }
+
+  return record;
+}
+
+export async function seatDineInTable(
+  tableNumber: number,
+  customerName: string,
+  groupSize: number,
+  status: "occupied" | "reserved" = "occupied",
+  offerTier?: string | null,
+  offerIncentive?: string | null
+): Promise<string | null> {
+  if (isDemoMode) {
+    if (typeof localStorage === "undefined") return null;
+    try {
+      const raw = localStorage.getItem(DEMO_MANUAL_TABLES_KEY);
+      const current: Record<number, DbDineInTable> = raw ? JSON.parse(raw) : {};
+      current[tableNumber] = {
+        customerName,
+        groupSize,
+        seatedAt: status === "occupied" ? new Date().toISOString() : null,
+        status,
+        offerTier: offerTier || null,
+        offerIncentive: offerIncentive || null,
+      };
+      localStorage.setItem(DEMO_MANUAL_TABLES_KEY, JSON.stringify(current));
+    } catch (err: any) {
+      return err.message;
+    }
+    return null;
+  }
+
+  const { error } = await getSupabase()
+    .from("dine_in_tables")
+    .upsert({
+      table_number: tableNumber,
+      capacity: 4,
+      status,
+      customer_name: customerName,
+      group_size: groupSize,
+      seated_at: status === "occupied" ? new Date().toISOString() : null,
+      offer_tier: offerTier || null,
+      offer_incentive: offerIncentive || null,
+    });
+
+  return error ? error.message : null;
+}
+
+export async function releaseDineInTable(tableNumber: number): Promise<string | null> {
+  if (isDemoMode) {
+    if (typeof localStorage === "undefined") return null;
+    try {
+      const raw = localStorage.getItem(DEMO_MANUAL_TABLES_KEY);
+      const current: Record<number, DbDineInTable> = raw ? JSON.parse(raw) : {};
+      delete current[tableNumber];
+      localStorage.setItem(DEMO_MANUAL_TABLES_KEY, JSON.stringify(current));
+
+      const orders = loadDemoOrderRecords();
+      orders.forEach((o) => {
+        if (o.tableNumber === tableNumber && o.status === "placed") {
+          o.status = "paid";
+          if (!o.paymentMode) {
+            o.paymentMode = "Cash";
+          }
+        }
+      });
+      saveDemoOrderRecords(orders);
+    } catch (err: any) {
+      return err.message;
+    }
+    return null;
+  }
+
+  const { error } = await getSupabase()
+    .from("dine_in_tables")
+    .update({
+      status: "vacant",
+      customer_name: null,
+      group_size: null,
+      seated_at: null,
+      offer_tier: null,
+      offer_incentive: null,
+    })
+    .eq("table_number", tableNumber);
+
+  if (error) return error.message;
+
+  const { error: orderError } = await getSupabase()
+    .from("orders")
+    .update({
+      status: "paid",
+      payment_mode: "Cash",
+    })
+    .eq("table_number", tableNumber)
+    .eq("status", "placed");
+
+  return orderError ? orderError.message : null;
+}
+
+export interface DbActiveOrderLine {
+  baseId?: string;
+  pizzaId?: string;
+  toppingIds?: string[];
+  baseName?: string;
+  pizzaName?: string;
+  toppingNames?: string[];
+  quantity: number;
+}
+
+export interface DbActiveOrder {
+  id: string;
+  customerName: string;
+  phone: string;
+  tableNumber: number;
+  sessionStartedAt: string;
+  lines: DbActiveOrderLine[];
+  offerTier: string | null;
+  offerIncentive: string | null;
+}
+
+export async function getActiveOrderForTable(tableNumber: number): Promise<DbActiveOrder | null> {
+  if (isDemoMode) {
+    const o = loadDemoOrderRecords().find((x) => x.tableNumber === tableNumber && x.status === "placed");
+    if (!o) return null;
+    return {
+      id: o.id,
+      customerName: o.customerName,
+      phone: o.phone,
+      tableNumber: o.tableNumber,
+      sessionStartedAt: o.sessionStartedAt,
+      lines: o.lines.map((line: any) => ({
+        baseName: line.baseName || line.base_name || "",
+        pizzaName: line.pizzaName || line.pizza_name || "",
+        toppingNames: line.toppingNames || line.topping_names || [],
+        quantity: line.quantity,
+      })),
+      offerTier: o.offerTier || null,
+      offerIncentive: o.offerIncentive || null,
+    };
+  }
+
+  const { data, error } = await getSupabase()
+    .from("orders")
+    .select(
+      `id, session_started_at, customer_name, phone, table_number, offer_tier, offer_incentive,
+       order_items ( id, base_id, pizza_id, quantity,
+         order_item_toppings ( topping_id ) )`
+    )
+    .eq("table_number", tableNumber)
+    .eq("status", "placed")
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  return {
+    id: data.id,
+    customerName: data.customer_name,
+    phone: data.phone,
+    tableNumber: data.table_number,
+    sessionStartedAt: data.session_started_at,
+    lines: (data.order_items ?? []).map((item: any) => ({
+      baseId: item.base_id || "",
+      pizzaId: item.pizza_id || "",
+      toppingIds: (item.order_item_toppings ?? [])
+        .map((t: any) => t.topping_id)
+        .filter(Boolean),
+      quantity: item.quantity,
+    })),
+    offerTier: data.offer_tier || null,
+    offerIncentive: data.offer_incentive || null,
+  };
 }

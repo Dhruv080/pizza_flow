@@ -31,7 +31,7 @@ export const PAYMENT_MODES: PaymentMode[] = ["Cash", "Card", "UPI"];
 
 // Dine-in tables at the outlet. The waiter picks one before handing the
 // tablet to the customer; the customer cannot change it.
-export const TABLE_COUNT = 30;
+export const TABLE_COUNT = 15;
 
 export interface Bill {
   subtotalPaise: number;
@@ -62,4 +62,7 @@ export interface CompletedOrder {
   gstPaise: number;
   totalPaise: number;
   paymentMode: PaymentMode;
+  offerTier?: string | null;
+  offerIncentive?: string | null;
+  appliedPromoCode?: string | null;
 }

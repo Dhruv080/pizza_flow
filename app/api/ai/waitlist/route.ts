@@ -18,8 +18,8 @@ export async function POST(request: Request) {
   const customerName = (body.customerName ?? "Valued Guest").trim().slice(0, 50);
   const waitedMinutes = Number(body.waitedMinutes ?? 0);
   const groupSize = Number(body.groupSize ?? 2);
-  const currentOccupancy = Number(body.currentOccupancy ?? 30);
-  const totalCapacity = Number(body.totalCapacity ?? 30);
+  const currentOccupancy = Number(body.currentOccupancy ?? 15);
+  const totalCapacity = Number(body.totalCapacity ?? 15);
 
   // 1. Calculate deterministic tier and offer for fallback/validation
   let waitTier = "Bronze";

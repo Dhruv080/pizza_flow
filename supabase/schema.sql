@@ -48,7 +48,9 @@ create table if not exists orders (
   total numeric(10, 2) not null check (total >= 0),
   payment_mode text check (payment_mode in ('Cash', 'Card', 'UPI')),
   table_number int check (table_number between 1 and 50),
-  status text not null default 'placed' check (status in ('placed', 'paid'))
+  status text not null default 'placed' check (status in ('placed', 'paid')),
+  offer_tier text check (offer_tier is null or length(offer_tier) between 1 and 50),
+  offer_incentive text check (offer_incentive is null or length(offer_incentive) between 1 and 150)
 );
 
 -- Upgrade path for databases created before dine-in table tracking existed.
@@ -61,6 +63,10 @@ alter table orders add column if not exists table_number int check (table_number
 -- explicitly, so this default only ever applies to pre-existing rows.
 alter table orders add column if not exists status text not null default 'paid' check (status in ('placed', 'paid'));
 alter table orders alter column payment_mode drop not null;
+
+-- Upgrade path for databases created before loyalty rewards existed on orders.
+alter table orders add column if not exists offer_tier text check (offer_tier is null or length(offer_tier) between 1 and 50);
+alter table orders add column if not exists offer_incentive text check (offer_incentive is null or length(offer_incentive) between 1 and 150);
 
 create index if not exists orders_created_at_idx on orders (created_at desc);
 
@@ -122,12 +128,62 @@ create table if not exists settings (
   updated_at timestamptz not null default now()
 );
 
+-- -------------------------------------------------------- dine in tables
+create table if not exists dine_in_tables (
+  table_number int primary key check (table_number between 1 and 50),
+  capacity int not null default 4 check (capacity > 0),
+  status text not null default 'vacant' check (status in ('vacant', 'occupied', 'reserved')),
+  customer_name text check (customer_name is null or length(customer_name) between 1 and 50),
+  group_size int check (group_size is null or group_size > 0),
+  seated_at timestamptz,
+  offer_tier text check (offer_tier is null or length(offer_tier) between 1 and 50),
+  offer_incentive text check (offer_incentive is null or length(offer_incentive) between 1 and 150),
+  created_at timestamptz not null default now()
+);
+
+-- ------------------------------------------------------------- waitlist
+create table if not exists waitlist (
+  id uuid primary key default gen_random_uuid(),
+  customer_name text not null check (length(customer_name) between 2 and 40),
+  phone text not null check (phone ~ '^[6-9][0-9]{9}$'),
+  group_size int not null check (group_size > 0),
+  joined_at timestamptz not null default now(),
+  time_offset_minutes int not null default 0,
+  status text not null default 'waiting' check (status in ('waiting', 'seated', 'cancelled')),
+  seated_table_number int check (seated_table_number between 1 and 50),
+  seated_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
 -- ---------------------------------------------------------------- RLS
 alter table menu_items enable row level security;
 alter table orders enable row level security;
 alter table order_items enable row level security;
 alter table order_item_toppings enable row level security;
 alter table settings enable row level security;
+alter table dine_in_tables enable row level security;
+alter table waitlist enable row level security;
+
+-- Seating & Waitlist Policies
+drop policy if exists "admin do everything on dine_in_tables" on dine_in_tables;
+create policy "admin do everything on dine_in_tables" on dine_in_tables
+  for all to authenticated using (true) with check (true);
+
+drop policy if exists "admin do everything on waitlist" on waitlist;
+create policy "admin do everything on waitlist" on waitlist
+  for all to authenticated using (true) with check (true);
+
+drop policy if exists "anyone can select dine_in_tables" on dine_in_tables;
+create policy "anyone can select dine_in_tables" on dine_in_tables
+  for select using (true);
+
+drop policy if exists "anyone can select waitlist" on waitlist;
+create policy "anyone can select waitlist" on waitlist
+  for select using (true);
+
+drop policy if exists "anyone can insert waitlist" on waitlist;
+create policy "anyone can insert waitlist" on waitlist
+  for insert with check (true);
 
 -- Settings: everyone can read the public settings (the ordering page shows the
 -- outlet name), EXCEPT `secret_`-prefixed rows (e.g. the OpenRouter API key),

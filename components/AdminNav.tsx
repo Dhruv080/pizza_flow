@@ -39,6 +39,9 @@ export default function AdminNav({ activeRole, onRoleChange, onSignOut }: AdminN
             <Link href="/admin/menu" className={isActive("/admin/menu") ? "active" : ""}>
               Menu management
             </Link>
+            <Link href="/admin/seating" className={isActive("/admin/seating") ? "active" : ""}>
+              Outlet Seating & Waitlist
+            </Link>
             <Link href="/admin/ratings" className={isActive("/admin/ratings") ? "active" : ""}>
               Ratings
             </Link>
@@ -66,13 +69,25 @@ export default function AdminNav({ activeRole, onRoleChange, onSignOut }: AdminN
                 >
                   AI settings
                 </Link>
+                <Link
+                  href="/admin/settings/offers"
+                  className="dd-item"
+                  onClick={() => { if (settingsRef.current) settingsRef.current.open = false; }}
+                >
+                  Offer list
+                </Link>
               </div>
             </details>
           </>
         ) : (
-          <Link href="/admin" className={isActive("/admin") ? "active" : ""}>
-            Outlet Seating & Waitlist
-          </Link>
+          <>
+            <Link href="/admin/seating" className={isActive("/admin/seating") ? "active" : ""}>
+              Outlet Seating & Waitlist
+            </Link>
+            <Link href="/admin/settings/outlet" className={isActive("/admin/settings/outlet") ? "active" : ""}>
+              Outlet Settings
+            </Link>
+          </>
         )}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
