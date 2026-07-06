@@ -419,13 +419,14 @@ export default function AdminPage() {
   // the entire history.
   const dailySeries = useMemo<DailyPoint[]>(() => {
     if (!orders) return [];
-    const byDate = new Map<string, { pizzas: number; revenue: number; discount: number }>();
+    const byDate = new Map<string, { pizzas: number; revenue: number; discount: number; promoDiscount: number }>();
     for (const order of orders) {
       const date = localDateKey(new Date(order.createdAt));
-      const entry = byDate.get(date) ?? { pizzas: 0, revenue: 0, discount: 0 };
+      const entry = byDate.get(date) ?? { pizzas: 0, revenue: 0, discount: 0, promoDiscount: 0 };
       entry.pizzas += order.lines.reduce((sum, line) => sum + line.quantity, 0);
       entry.revenue += paiseToRupees(order.totalPaise);
       entry.discount += paiseToRupees(order.discountPaise);
+      entry.promoDiscount += paiseToRupees(order.promoDiscountPaise);
       byDate.set(date, entry);
     }
 
@@ -444,7 +445,7 @@ export default function AdminPage() {
     const series: DailyPoint[] = [];
     for (const d = new Date(fromDate); d <= toDate; d.setDate(d.getDate() + 1)) {
       const key = localDateKey(d);
-      const entry = byDate.get(key) ?? { pizzas: 0, revenue: 0, discount: 0 };
+      const entry = byDate.get(key) ?? { pizzas: 0, revenue: 0, discount: 0, promoDiscount: 0 };
       series.push({ date: key, ...entry });
     }
     return series;

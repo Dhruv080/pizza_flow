@@ -35,7 +35,10 @@ export const TABLE_COUNT = 12;
 
 export interface Bill {
   subtotalPaise: number;
-  discountPaise: number; // 0 when total quantity < 5
+  discountPaise: number; // bulkDiscountPaise + promoDiscountPaise
+  bulkDiscountPaise: number; // 0 when total quantity < 5
+  promoDiscountPaise: number; // 0 unless a promo code is applied
+  promoCode: string | null;
   taxablePaise: number; // subtotal - discount
   gstPaise: number; // 18% of taxable
   totalPaise: number;
@@ -59,6 +62,8 @@ export interface CompletedOrder {
   }[];
   subtotalPaise: number;
   discountPaise: number;
+  promoDiscountPaise: number; // portion of discountPaise attributable to a promo code (0 if none)
+  promoCode: string | null;
   gstPaise: number;
   totalPaise: number;
   paymentMode: PaymentMode;

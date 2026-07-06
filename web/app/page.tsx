@@ -5,7 +5,7 @@
 // an optional shortcut that fills the same validated cart.
 
 import { useEffect, useMemo, useState } from "react";
-import { computeBill, unitPricePaise, DISCOUNT_THRESHOLD, DISCOUNT_RATE } from "@/lib/billing";
+import { computeBill, unitPricePaise, DISCOUNT_THRESHOLD, DISCOUNT_RATE, type AppliedPromo } from "@/lib/billing";
 import { formatPaise } from "@/lib/format";
 import {
   confirmOrder,
@@ -14,10 +14,12 @@ import {
   getOutletSettings,
   getEffectiveAiFeatures,
   getBestSellerPizzaIds,
+  getActivePromoCodes,
   submitOrderFeedback,
   isDemoMode,
   DEFAULT_OUTLET,
   type OutletSettings,
+  type PromoCode,
 } from "@/lib/data";
 import {
   validateName,
@@ -35,6 +37,7 @@ export default function OrderPage() {
   const [assistantEnabled, setAssistantEnabled] = useState(true);
   const [upsellEnabled, setUpsellEnabled] = useState(true);
   const [bestSellerIds, setBestSellerIds] = useState<string[]>([]);
+  const [activeCodes, setActiveCodes] = useState<PromoCode[]>([]);
   // The waiter sets the table and hands the tablet over; a completed order
   // returns here so the next customer starts from a fresh table selection.
   const [tableNumber, setTableNumber] = useState<number | null>(null);
@@ -56,6 +59,10 @@ export default function OrderPage() {
       .catch(() => {});
     getBestSellerPizzaIds()
       .then(setBestSellerIds)
+      .catch(() => {});
+    // Currently-redeemable promo codes — best effort, never blocks ordering.
+    getActivePromoCodes()
+      .then(setActiveCodes)
       .catch(() => {});
   }, []);
 
@@ -91,6 +98,7 @@ export default function OrderPage() {
       assistantEnabled={assistantEnabled}
       upsellEnabled={upsellEnabled}
       bestSellerIds={bestSellerIds}
+      activeCodes={activeCodes}
       tableNumber={tableNumber}
       sessionStartedAt={sessionStartedAt}
       onNewOrder={() => {
@@ -146,6 +154,7 @@ function OrderFlow({
   assistantEnabled,
   upsellEnabled,
   bestSellerIds,
+  activeCodes,
   tableNumber,
   sessionStartedAt,
   onNewOrder,
@@ -155,6 +164,7 @@ function OrderFlow({
   assistantEnabled: boolean;
   upsellEnabled: boolean;
   bestSellerIds: string[];
+  activeCodes: PromoCode[];
   tableNumber: number;
   sessionStartedAt: string;
   onNewOrder: () => void;
@@ -176,6 +186,11 @@ function OrderFlow({
   // cart + payment
   const [cart, setCart] = useState<CartLine[]>([]);
   const [paymentMode, setPaymentMode] = useState<PaymentMode | null>(null);
+  // promo code redemption
+  const [appliedCode, setAppliedCode] = useState<PromoCode | null>(null);
+  const [promoInput, setPromoInput] = useState("");
+  const [promoError, setPromoError] = useState("");
+  const [showPromoModal, setShowPromoModal] = useState(false);
   const [placeError, setPlaceError] = useState("");
   const [placing, setPlacing] = useState(false);
   const [receipt, setReceipt] = useState<CompletedOrder | null>(null);
@@ -187,8 +202,30 @@ function OrderFlow({
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState("");
 
-  const bill = useMemo(() => computeBill(cart), [cart]);
+  const appliedPromo: AppliedPromo | null = appliedCode
+    ? {
+        code: appliedCode.code,
+        discountType: appliedCode.discountType,
+        discountValue: appliedCode.discountValue,
+        featuredItemId: appliedCode.featuredItemId,
+      }
+    : null;
+  const bill = useMemo(() => computeBill(cart, appliedPromo), [cart, appliedPromo]);
   const pendingLines = cart.slice(confirmedCount);
+
+  function applyPromoCode() {
+    const wanted = promoInput.trim().toUpperCase();
+    if (!wanted) return;
+    const match = activeCodes.find((c) => c.code === wanted);
+    if (!match) {
+      setPromoError("That code is invalid or has expired.");
+      return;
+    }
+    setAppliedCode(match);
+    setPromoInput("");
+    setPromoError("");
+    setShowPromoModal(false);
+  }
 
   const selectedBase = menu.bases.find((b) => b.id === baseId);
   const selectedPizza = menu.pizzas.find((p) => p.id === pizzaId);
@@ -295,6 +332,7 @@ function OrderFlow({
         sessionStartedAt,
         cart,
         newLines: pendingLines,
+        promo: appliedPromo,
       });
       setOrderId(id);
       setConfirmedCount(cart.length);
@@ -333,6 +371,7 @@ function OrderFlow({
         cart,
         newLines: cart.slice(confirmedCount),
         paymentMode,
+        promo: appliedPromo,
       });
       setReceipt(order);
     } catch (error) {
@@ -357,6 +396,12 @@ function OrderFlow({
         <div className="banner banner-demo">
           <strong>Demo mode:</strong> Supabase keys are not configured — the menu is bundled and
           orders are stored in this browser only.
+        </div>
+      )}
+      {activeCodes[0] && (
+        <div className="banner banner-promo">
+          <strong>🎉 {activeCodes[0].headline}</strong>
+          <div className="promo-text">{activeCodes[0].message}</div>
         </div>
       )}
 
@@ -521,7 +566,29 @@ function OrderFlow({
               return (
                 <div className="cart-line" key={index}>
                   <div className="names">
-                    <strong>{line.pizza.name}</strong>
+                    <details className="line-details">
+                      <summary>
+                        <strong>{line.pizza.name}</strong>
+                      </summary>
+                      <div className="line-breakdown-row">
+                        <span>{line.pizza.name} (pizza)</span>
+                        <span>{formatPaise(line.pizza.pricePaise)}</span>
+                      </div>
+                      <div className="line-breakdown-row">
+                        <span>{line.base.name} (base)</span>
+                        <span>{formatPaise(line.base.pricePaise)}</span>
+                      </div>
+                      {line.toppings.map((t) => (
+                        <div className="line-breakdown-row" key={t.id}>
+                          <span>{t.name} (topping)</span>
+                          <span>{formatPaise(t.pricePaise)}</span>
+                        </div>
+                      ))}
+                      <div className="line-breakdown-row line-total">
+                        <span>Unit price × {line.quantity}</span>
+                        <span>{formatPaise(unitPricePaise(line) * line.quantity)}</span>
+                      </div>
+                    </details>
                     <small>
                       {line.base.name}
                       {line.toppings.length > 0 && ` · ${line.toppings.map((t) => t.name).join(", ")}`}
@@ -575,17 +642,102 @@ function OrderFlow({
                     }
                   />
                 )}
+
+                {appliedCode ? (
+                  <div className="promo-applied">
+                    <span>
+                      Code <code>{appliedCode.code}</code> applied
+                    </span>
+                    <button onClick={() => setAppliedCode(null)}>remove</button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="promo-cta"
+                    style={{ marginTop: 12 }}
+                    onClick={() => setShowPromoModal(true)}
+                  >
+                    <span>Apply a promo code</span>
+                    <span aria-hidden="true">›</span>
+                  </button>
+                )}
+
+                {showPromoModal && (
+                  <div className="modal-backdrop" onClick={() => setShowPromoModal(false)}>
+                    <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+                      <div className="modal-head">
+                        <h3>Apply a promo code</h3>
+                        <button
+                          type="button"
+                          className="modal-close"
+                          aria-label="Close"
+                          onClick={() => setShowPromoModal(false)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div className="promo-code-row">
+                        <input
+                          type="text"
+                          placeholder="Enter code"
+                          value={promoInput}
+                          maxLength={12}
+                          autoFocus
+                          onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                          onKeyDown={(e) => e.key === "Enter" && applyPromoCode()}
+                        />
+                        <button className="btn btn-small" onClick={applyPromoCode} disabled={!promoInput.trim()}>
+                          Apply
+                        </button>
+                      </div>
+                      {promoError && <p className="error-text">{promoError}</p>}
+                      {activeCodes.length > 0 ? (
+                        <div className="promo-code-list" style={{ marginTop: 14 }}>
+                          {activeCodes.map((c) => (
+                            <div className="promo-code-item" key={c.id}>
+                              <div>
+                                <code>{c.code}</code>
+                                <small>{c.headline}</small>
+                              </div>
+                              <button
+                                className="btn btn-small btn-secondary"
+                                onClick={() => {
+                                  setAppliedCode(c);
+                                  setPromoError("");
+                                  setShowPromoModal(false);
+                                }}
+                              >
+                                Apply
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="page-sub" style={{ marginTop: 14, marginBottom: 0 }}>
+                          No active codes right now.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div className="bill-rows" style={{ marginTop: 12 }}>
                   <div className="bill-row">
                     <span>Subtotal ({bill.totalQuantity} pizzas)</span>
                     <span>{formatPaise(bill.subtotalPaise)}</span>
                   </div>
-                  {bill.discountPaise > 0 ? (
+                  {bill.promoDiscountPaise > 0 && (
+                    <div className="bill-row discount">
+                      <span>Promo ({bill.promoCode})</span>
+                      <span>-{formatPaise(bill.promoDiscountPaise)}</span>
+                    </div>
+                  )}
+                  {bill.bulkDiscountPaise > 0 ? (
                     <div className="bill-row discount">
                       <span>
                         Bulk discount ({DISCOUNT_RATE * 100}% for {DISCOUNT_THRESHOLD} or more)
                       </span>
-                      <span>-{formatPaise(bill.discountPaise)}</span>
+                      <span>-{formatPaise(bill.bulkDiscountPaise)}</span>
                     </div>
                   ) : (
                     <div className="bill-row muted">
@@ -883,10 +1035,18 @@ function Receipt({
         <p>
           Subtotal <span style={{ float: "right" }}>{formatPaise(order.subtotalPaise)}</span>
         </p>
-        {order.discountPaise > 0 && (
+        {order.promoDiscountPaise > 0 && (
+          <p>
+            Promo ({order.promoCode}){" "}
+            <span style={{ float: "right" }}>-{formatPaise(order.promoDiscountPaise)}</span>
+          </p>
+        )}
+        {order.discountPaise - order.promoDiscountPaise > 0 && (
           <p>
             Bulk discount (10%){" "}
-            <span style={{ float: "right" }}>-{formatPaise(order.discountPaise)}</span>
+            <span style={{ float: "right" }}>
+              -{formatPaise(order.discountPaise - order.promoDiscountPaise)}
+            </span>
           </p>
         )}
         <p>
